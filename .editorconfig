@@ -1,0 +1,32 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{kt,kts}]
+# Standard Kotlin/Compose line-length ceiling used across this codebase.
+max_line_length = 140
+ktlint_standard_max-line-length = enabled
+
+# @Composable functions are PascalCase by official Compose convention
+# (they read as emitting a UI "thing", not performing an action) — that's
+# intentional here, not a naming bug. Without this, ktlint's default
+# function-naming rule flags every @Composable fun in the project.
+ktlint_function_naming_ignore_when_annotated_with = Composable
+
+# Backing properties for Compose state (e.g. `_uiState` backing a public
+# `uiState: StateFlow<...>`) are an established, deliberate convention in
+# this codebase — not a naming mistake.
+ktlint_standard_backing-property-naming = disabled
+
+[*.md]
+max_line_length = off
+trim_trailing_whitespace = false
+
+[*.{yml,yaml}]
+indent_size = 2

@@ -1,0 +1,534 @@
+[versions]
+# ── Core build tooling ──
+agp = "8.13.2"
+# Kotlin bumped 2.1.20 -> 2.3.10. Root cause of the follow-up CI
+# failure (kspDebugKotlin: "Module was compiled with an incompatible
+# version of Kotlin. The binary version of its metadata is 2.3.0,
+# expected version is 2.1.0"): a transitive dependency on this
+# project's classpath (llamacpp-kotlin-0.4.0, and kotlin-stdlib
+# itself as resolved by Gradle) ships .kotlin_module metadata written
+# by the Kotlin 2.3 compiler. A 2.1.x Kotlin compiler can only read
+# metadata up to its own version (2.1.0) — it cannot read forward to
+# 2.3.0 metadata, so every class from that newer stdlib jar fails to
+# resolve, which is a hard compile error, not a warning. The fix is
+# to bring the project's own Kotlin compiler up to meet the newest
+# metadata already present on the classpath, not to pin the
+# dependency down (pinning would need excluding kotlin-stdlib
+# transitively from every library that bundles a newer one, which is
+# far more fragile). 2.3.10 (not 2.3.0/2.3.20) is the specific patch
+# Kotlin's own compatibility docs name as the version to use "with
+# AGP 8.x" — 2.3.0 and later on the 2.3.x line raise a deprecation
+# warning against AGP versions like this project's 8.13.2 (whose
+# documented max-supported-Kotlin pairing tops out at 2.3.0), and
+# 2.3.10 specifically reverts that warning while keeping the newer
+# metadata reader. ksp bumped to plain "2.3.10" (not the old
+# "<kotlin>-<ksp-patch>" dotted form) because KSP 2.3.0+ decoupled
+# its own version numbering from the Kotlin compiler version it
+# targets — google/ksp's 2.3.0 release notes confirm the plugin
+# version and the Kotlin version it depends on are no longer meant to
+# be read as one composite string.
+kotlin = "2.3.10"
+ksp = "2.3.10"
+
+# ── AndroidX core ──
+# core-ktx pinned to 1.18.0 (up from 1.15.0) to match what actually
+# resolves on the classpath — a transitive dependency was already
+# pulling in 1.18.0 regardless of this pin, and 1.18.0 requires
+# compileSdk 36 + AGP 8.9.1+ (per its AAR metadata). Previously the
+# TOML claimed 1.15.0 while the resolved jar was silently 1.18.0,
+# which is exactly the mismatch that produced CI's "4 issues were
+# found when checking AAR metadata" failure — the declared version
+# and the enforced-minimum version had quietly diverged. Pinning to
+# match reality, and bumping AGP/compileSdk to match what 1.18.0
+# actually requires, closes that gap from both directions.
+coreKtx = "1.18.0"
+lifecycle = "2.8.7"
+activityCompose = "1.9.3"
+splashscreen = "1.0.1"
+palette = "1.0.0"
+exifinterface = "1.3.7"
+desugarJdkLibs = "2.1.5"
+appcompat = "1.7.0"
+annotation = "1.9.1"
+tracing = "1.2.0"
+profileinstaller = "1.4.1"
+startup = "1.2.0"
+browser = "1.8.0"
+# Non-deprecated replacement for android.preference.PreferenceManager,
+# needed only for osmdroid's Configuration.load() call (see
+# ArtificerXApp.configureOsmdroid()) — osmdroid's own official
+# examples still use the platform-deprecated android.preference
+# package, but androidx.preference.PreferenceManager.
+# getDefaultSharedPreferences(context) returns the exact same
+# SharedPreferences instance without the deprecation warning.
+androidxPreference = "1.2.1"
+
+# ── Compose ──
+# BOM bumped from 2024.12.01 to 2025.08.00 (Compose 1.9 line) —
+# verified this specific BOM introduces no compileSdk/AGP-version
+# requirement beyond what this project already has (compileSdk 36,
+# AGP 8.13.2); the later 2026.04.01 BOM (Compose 1.11) would also fit
+# under that same compileSdk 36 ceiling, but was deliberately NOT
+# taken in this same change — jumping five BOM releases at once bundles
+# too many simultaneous library-internal changes (in particular
+# Compose 1.10+'s default switch from UnconfinedTestDispatcher to
+# StandardTestDispatcher in the v2 testing APIs, which can silently
+# change existing Compose UI test timing/flakiness) to responsibly
+# verify without a live build in this environment. A further bump
+# toward 2026.04.01 should happen as its own isolated, testable change.
+composeBom = "2025.08.00"
+navigationCompose = "2.8.5"
+
+# ── DI ──
+# Hilt bumped 2.52 -> 2.58. Root cause of the CI failure "The KSP
+# plugin was detected to be applied but its task class could not be
+# found... Hilt Gradle Plugin is using a different class loader":
+# Hilt 2.52's Gradle plugin predates the Kotlin 2.3 metadata format
+# entirely and was built/tested against much older KSP internals
+# (KSP's task class shapes and detection APIs changed substantially
+# between the KSP versions available when Hilt 2.52 shipped and KSP
+# 2.3.10, which this project now uses after the Kotlin bump above).
+# With that big a version gap, Hilt's own plugin-detection logic for
+# "is KSP applied, and where" silently breaks — it still loads, but
+# resolves KSP's task class through a stale/incompatible view of the
+# classpath, which Hilt's error message surfaces as a classloader
+# mismatch even though both plugins are declared identically
+# (apply false at root, applied together in app/build.gradle.kts).
+# Hilt 2.58 is specifically the version that: (a) includes the
+# kotlin-metadata-jvm fix for Kotlin 2.3.0+ metadata (google/dagger
+# issue #5001), and (b) is the last Hilt release whose Gradle plugin
+# still supports AGP 8.x — Hilt 2.59+ dropped AGP 8.x support
+# entirely in favor of AGP 9's built-in Kotlin support, which this
+# project (on AGP 8.13.2) cannot use yet.
+hilt = "2.58"
+hiltNavigationCompose = "1.2.0"
+hiltWork = "1.2.0"
+
+# ── Persistence ──
+room = "2.7.1"
+datastore = "1.1.1"
+sqlcipher = "4.5.6"
+
+# ── Networking ──
+retrofit = "2.11.0"
+okhttp = "4.12.0"
+kotlinxSerialization = "1.7.3"
+kotlinxCoroutines = "1.9.0"
+kotlinxDatetime = "0.6.1"
+kotlinxImmutable = "0.3.8"
+# Apollo Kotlin pinned to the 4.x line (4.4.3), NOT 5.x — Apollo 5
+# requires AGP 9 + KGP 2.3+ per its own changelog, which is
+# incompatible with this project's AGP 8.13.2 / Kotlin 2.0.21
+# baseline. Revisit this pin only alongside a coordinated AGP-9
+# migration, not in isolation.
+apolloGraphql = "4.4.3"
+# WebSocket support (Section: online/calling/real-time) uses OkHttp's
+# own built-in WebSocket API (okhttp3.WebSocket / WebSocketListener) —
+# already covered by the okhttp entry above, so no separate WebSocket
+# library is declared. A dedicated add-on (e.g. Tyrus) would be a
+# Jakarta/JVM-server library, not meant for Android clients.
+
+# ── Web / HTML fetching ──
+# Section: Web search & fetch tools. jsoup parses fetched HTML into a
+# navigable DOM so the WebSearchTool/HtmlFetcher agent tools can pull
+# readable article text out of a page rather than handing the model
+# raw markup — same "strip to readable content" job Claude's own
+# web_fetch does server-side, done on-device here since this app has
+# no backend of its own.
+jsoup = "1.18.1"
+readability4j = "1.0.8"
+
+# ── Camera / media capture ──
+cameraX = "1.5.1"
+media3 = "1.11.0"
+
+# ── Maps / location ──
+playServicesLocation = "21.3.0"
+osmdroid = "6.1.20"
+
+# ── File / document handling ──
+# Section: File/document handling.
+# pdfbox-android: real, Maven Central-verified port of Apache PdfBox
+# for Android (com.tom-roush, not org.apache.pdfbox — the upstream JVM
+# artifact doesn't run on Android's ART runtime as-is). Latest verified
+# release is 2.0.27.0; note some transitive deps of this specific
+# version have publicly known CVEs per Maven Central's advisory data,
+# acceptable here only because this is a personal, non-distributed
+# build — revisit if this project is ever shared or published.
+# DOCX creation deliberately does NOT pull in Apache POI or docx4j:
+# both are JVM-first libraries with real Android friction (missing
+# java.awt classes, needing a JitPack transpiler shim, Java-9+-only
+# dependency chains) for a format that is, underneath, just a ZIP of
+# plain XML parts. DocumentHandler.kt hand-builds the OOXML XML
+# directly and zips it with commons-compress below — smaller,
+# dependency-light, and avoids inheriting POI's Android caveats.
+pdfboxAndroid = "2.0.27.0"
+commonsCompress = "1.27.1"
+documentfile = "1.0.1"
+
+# ── Images / rendering ──
+coil = "2.7.0"
+androidSvg = "1.4"
+colorpickerCompose = "1.1.2"
+lottie = "6.6.2"
+zoomable = "2.6.0"
+# Additional painting/drawing engine support — Section:
+# Painting/drawing. androidx.ink is Google's own Jetpack library for
+# low-latency stylus/finger inking (pressure, tilt, orientation-aware
+# strokes, real-time authoring), announced Oct 2024 — a genuine
+# first-party fit for expanding ARTIFICER-X's canvas brush engine
+# beyond hand-rolled pointerInput/Canvas primitives. Compose's own
+# Canvas is already Skia-backed natively on Android, so no separate
+# Skia binding is needed here.
+inkAuthoring = "1.1.0-alpha07"
+
+# ── Background work / security ──
+workManager = "2.10.0"
+securityCrypto = "1.1.0-alpha06"
+biometric = "1.2.0-alpha05"
+
+# ── Third-party UX ──
+accompanist = "0.36.0"
+
+# ── Local on-device inference ──
+llamaCppKotlin = "0.4.0"
+
+# ── Logging / diagnostics ──
+timber = "5.0.1"
+leakcanary = "2.14"
+
+# ── Testing (unit) ──
+junit = "4.13.2"
+kotlinxCoroutinesTest = "1.9.0"
+turbine = "1.1.0"
+mockk = "1.13.13"
+truth = "1.4.4"
+robolectric = "4.14.1"
+archCoreTesting = "2.2.0"
+
+# ── Testing (instrumented) ──
+androidxTestExtJunit = "1.2.1"
+espresso = "3.6.1"
+androidxTestRunner = "1.6.2"
+androidxTestRules = "1.6.1"
+uiautomator = "2.3.0"
+androidxBenchmark = "1.4.1"
+
+# ── Static analysis / quality gates ──
+detekt = "1.23.7"
+ktlintGradle = "12.1.2"
+ktlintCli = "1.3.1"
+kover = "0.9.1"
+dependencyGuard = "0.5.0"
+gradleVersionsPlugin = "0.61.0"
+# Section: workflow/dependency additions.
+# Detects unused/misused dependency declarations (wrong configuration,
+# used-but-undeclared transitive deps) — the exact class of problem
+# this project has hit by hand multiple times already (missing test
+# dependencies, a Coil 2.x/3.x group mismatch). Runs as its own CI
+# step producing an actionable report rather than silently failing
+# the build, since its advice is sometimes a judgment call (e.g. a
+# reflectively-used dependency it can't statically see) rather than
+# an unconditional error.
+dependencyAnalysis = "3.17.0"
+# OWASP's NVD-backed CVE scanner for the fully-resolved dependency
+# tree — complements dependency-guard (which only detects that the
+# tree *changed*, not whether a version in it is vulnerable) and the
+# per-library CVE notes already written by hand in this TOML (e.g.
+# pdfbox-android's). Running this in CI means a newly-disclosed CVE
+# against an existing pinned version surfaces automatically on the
+# next scheduled run, not only when someone happens to re-read this
+# file's comments.
+owaspDependencyCheck = "13.0.0"
+# Generates a full third-party license inventory — useful for this
+# project's own records given how many third-party libraries (jsoup,
+# readability4j, osmdroid, pdfbox-android, androidx.ink, llamacpp-
+# kotlin, and more) are now pulled in, each under its own license.
+licenseReport = "3.1.4"
+# Method-reference-count tracking (Section: heavy/large app, tracking
+# growth). Not a hard 65,536-method-limit concern on modern AGP
+# (multidex is automatic and minSdk 26 is well above the API 21
+# threshold where that limit actually bites without multidex), but a
+# useful signal for *why* the APK is growing as more feature domains
+# (camera, maps, GraphQL, local-model inference) get wired in.
+dexcount = "4.0.0"
+
+[libraries]
+# ── AndroidX core ──
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "annotation" }
+androidx-tracing = { group = "androidx.tracing", name = "tracing-ktx", version.ref = "tracing" }
+androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
+androidx-startup-runtime = { group = "androidx.startup", name = "startup-runtime", version.ref = "startup" }
+androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "browser" }
+androidx-preference = { group = "androidx.preference", name = "preference-ktx", version.ref = "androidxPreference" }
+androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
+androidx-lifecycle-process = { group = "androidx.lifecycle", name = "lifecycle-process", version.ref = "lifecycle" }
+androidx-lifecycle-service = { group = "androidx.lifecycle", name = "lifecycle-service", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel-savedstate = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-savedstate", version.ref = "lifecycle" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "splashscreen" }
+androidx-palette = { group = "androidx.palette", name = "palette-ktx", version.ref = "palette" }
+androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
+androidx-biometric = { group = "androidx.biometric", name = "biometric-ktx", version.ref = "biometric" }
+desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
+
+# NOTE: no version.ref here — this artifact is managed by the Compose BOM
+# below (androidx-compose-bom) like the other androidx.compose.ui.* modules,
+# so it always matches the BOM's resolved Compose UI version instead of
+# drifting to a hand-pinned version and causing classpath skew. Previously
+# this was hand-pinned to 1.7.5 against a BOM resolving Compose UI to
+# 1.7.6, which is the exact version-skew root cause behind the
+# GoogleFont/FontProvider "unresolved reference" + "protected
+# constructor" compile failures fixed in ui/theme/Type.kt.
+androidx-ui-text-google-fonts = { group = "androidx.compose.ui", name = "ui-text-google-fonts" }
+
+# ── Compose ──
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+androidx-compose-ui-util = { group = "androidx.compose.ui", name = "ui-util" }
+androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
+androidx-compose-runtime = { group = "androidx.compose.runtime", name = "runtime" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-compose-material3-window-size = { group = "androidx.compose.material3", name = "material3-window-size-class" }
+androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
+androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
+androidx-navigation-testing = { group = "androidx.navigation", name = "navigation-testing", version.ref = "navigationCompose" }
+
+# ── Dependency Injection ──
+hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
+hilt-compiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "hilt" }
+hilt-android-testing = { group = "com.google.dagger", name = "hilt-android-testing", version.ref = "hilt" }
+hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hiltNavigationCompose" }
+hilt-work = { group = "androidx.hilt", name = "hilt-work", version.ref = "hiltWork" }
+hilt-compiler-androidx = { group = "androidx.hilt", name = "hilt-compiler", version.ref = "hiltWork" }
+
+# ── Persistence ──
+room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
+room-paging = { group = "androidx.room", name = "room-paging", version.ref = "room" }
+datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+datastore-core = { group = "androidx.datastore", name = "datastore-core", version.ref = "datastore" }
+sqlcipher-android = { group = "net.zetetic", name = "sqlcipher-android", version.ref = "sqlcipher" }
+
+# ── Networking ──
+retrofit-core = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
+retrofit-converter-kotlinx-serialization = { group = "com.squareup.retrofit2", name = "converter-kotlinx-serialization", version.ref = "retrofit" }
+okhttp-core = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+okhttp-logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
+okhttp-sse = { group = "com.squareup.okhttp3", name = "okhttp-sse", version.ref = "okhttp" }
+okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutinesTest" }
+kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime", version.ref = "kotlinxDatetime" }
+kotlinx-collections-immutable = { group = "org.jetbrains.kotlinx", name = "kotlinx-collections-immutable", version.ref = "kotlinxImmutable" }
+apollo-runtime = { group = "com.apollographql.apollo", name = "apollo-runtime", version.ref = "apolloGraphql" }
+apollo-normalized-cache = { group = "com.apollographql.apollo", name = "apollo-normalized-cache", version.ref = "apolloGraphql" }
+
+# ── Web / HTML fetching — Section: Web search & fetch tools ──
+jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+readability4j = { group = "net.dankito.readability4j", name = "readability4j", version.ref = "readability4j" }
+
+# ── Camera / media capture — Section: Camera/media ──
+camerax-core = { group = "androidx.camera", name = "camera-core", version.ref = "cameraX" }
+camerax-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "cameraX" }
+camerax-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraX" }
+camerax-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraX" }
+camerax-video = { group = "androidx.camera", name = "camera-video", version.ref = "cameraX" }
+camerax-extensions = { group = "androidx.camera", name = "camera-extensions", version.ref = "cameraX" }
+media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
+media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
+media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
+media3-common = { group = "androidx.media3", name = "media3-common", version.ref = "media3" }
+media3-transformer = { group = "androidx.media3", name = "media3-transformer", version.ref = "media3" }
+
+# ── Maps / location — Section: Maps/location ──
+# osmdroid chosen over the Google Maps SDK deliberately: Google Maps
+# requires a provisioned Maps API key (billing-linked Google Cloud
+# project) that this personal build has no wiring for, whereas
+# osmdroid renders OpenStreetMap tiles with zero API key and works
+# fully offline once tiles are cached — a better fit for a
+# single-developer, no-backend app. play-services-location is kept
+# separately for the device's own GPS/fused-location fix (that part
+# doesn't need Maps specifically, just Play Services' location APIs).
+play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
+osmdroid-android = { group = "org.osmdroid", name = "osmdroid-android", version.ref = "osmdroid" }
+
+# ── File / document handling — Section: File/document handling ──
+pdfbox-android = { group = "com.tom-roush", name = "pdfbox-android", version.ref = "pdfboxAndroid" }
+commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commonsCompress" }
+androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
+
+# ── Painting/drawing — androidx.ink (Section: Painting/drawing) ──
+ink-authoring = { group = "androidx.ink", name = "ink-authoring", version.ref = "inkAuthoring" }
+ink-authoring-compose = { group = "androidx.ink", name = "ink-authoring-compose", version.ref = "inkAuthoring" }
+ink-brush = { group = "androidx.ink", name = "ink-brush", version.ref = "inkAuthoring" }
+ink-brush-compose = { group = "androidx.ink", name = "ink-brush-compose", version.ref = "inkAuthoring" }
+ink-geometry = { group = "androidx.ink", name = "ink-geometry", version.ref = "inkAuthoring" }
+ink-rendering = { group = "androidx.ink", name = "ink-rendering", version.ref = "inkAuthoring" }
+ink-strokes = { group = "androidx.ink", name = "ink-strokes", version.ref = "inkAuthoring" }
+ink-nativeloader = { group = "androidx.ink", name = "ink-nativeloader", version.ref = "inkAuthoring" }
+ink-storage = { group = "androidx.ink", name = "ink-storage", version.ref = "inkAuthoring" }
+
+# ── Images / rendering ──
+# Coil 2.x line throughout — coil-compose (io.coil-kt) previously
+# co-existed with a coil-network-okhttp pinned to the Coil 3.x group
+# (io.coil-kt.coil3), an incompatible major-version/group mismatch that
+# would resolve to two unrelated artifact families on the classpath.
+# Removed the stray 3.x entry; if/when the project migrates to Coil 3
+# it should move as a single coordinated version bump, not one artifact
+# at a time.
+coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+coil-svg = { group = "io.coil-kt", name = "coil-svg", version.ref = "coil" }
+androidsvg = { group = "com.caverock", name = "androidsvg-aar", version.ref = "androidSvg" }
+colorpicker-compose = { group = "com.github.skydoves", name = "colorpicker-compose", version.ref = "colorpickerCompose" }
+lottie-compose = { group = "com.airbnb.android", name = "lottie-compose", version.ref = "lottie" }
+zoomable = { group = "net.engawapg.lib", name = "zoomable", version.ref = "zoomable" }
+
+# ── Background work / security ──
+work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
+work-testing = { group = "androidx.work", name = "work-testing", version.ref = "workManager" }
+security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
+
+# ── Third-party UX ──
+accompanist-permissions = { group = "com.google.accompanist", name = "accompanist-permissions", version.ref = "accompanist" }
+accompanist-systemuicontroller = { group = "com.google.accompanist", name = "accompanist-systemuicontroller", version.ref = "accompanist" }
+accompanist-navigation-animation = { group = "com.google.accompanist", name = "accompanist-navigation-animation", version.ref = "accompanist" }
+
+# ── Local on-device GGUF + mmproj (vision) inference — Section: Local
+# Model provider. Prebuilt AAR from Maven Central; MIT-licensed Kotlin
+# bindings over a modernized llama.cpp core — no NDK/CMake
+# cross-compilation needed in a Termux build environment.
+llamacpp-kotlin = { group = "io.github.ljcamargo", name = "llamacpp-kotlin", version.ref = "llamaCppKotlin" }
+
+# ── Logging / diagnostics ──
+timber = { group = "com.jakewharton.timber", name = "timber", version.ref = "timber" }
+leakcanary-android = { group = "com.squareup.leakcanary", name = "leakcanary-android", version.ref = "leakcanary" }
+
+# ── Testing (unit) ──
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
+mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+mockk-android = { group = "io.mockk", name = "mockk-android", version.ref = "mockk" }
+truth = { group = "com.google.truth", name = "truth", version.ref = "truth" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+androidx-arch-core-testing = { group = "androidx.arch.core", name = "core-testing", version.ref = "archCoreTesting" }
+
+# ── Testing (instrumented) ──
+androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }
+androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
+androidx-espresso-contrib = { group = "androidx.test.espresso", name = "espresso-contrib", version.ref = "espresso" }
+androidx-espresso-intents = { group = "androidx.test.espresso", name = "espresso-intents", version.ref = "espresso" }
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
+androidx-test-rules = { group = "androidx.test", name = "rules", version.ref = "androidxTestRules" }
+androidx-test-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
+androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "androidxBenchmark" }
+
+[bundles]
+# Group commonly-co-used libraries so app/build.gradle.kts can pull one
+# bundle entry instead of six separate implementation() lines per
+# feature area — reduces line-count drift when a feature area's
+# dependency set changes (add/remove happens in one place here).
+compose-ui = [
+    "androidx-compose-ui",
+    "androidx-compose-ui-graphics",
+    "androidx-compose-ui-tooling-preview",
+    "androidx-compose-foundation",
+    "androidx-compose-runtime",
+    "androidx-compose-material3",
+    "androidx-compose-material-icons-extended",
+]
+networking = [
+    "retrofit-core",
+    "retrofit-converter-kotlinx-serialization",
+    "okhttp-core",
+    "okhttp-logging-interceptor",
+    "okhttp-sse",
+]
+room = ["room-runtime", "room-ktx"]
+unit-test-core = [
+    "junit",
+    "kotlinx-coroutines-test",
+    "turbine",
+    "mockk",
+    "truth",
+    "robolectric",
+    "androidx-arch-core-testing",
+]
+instrumented-test-core = [
+    "androidx-test-ext-junit",
+    "androidx-test-runner",
+    "androidx-test-rules",
+    "androidx-espresso-core",
+    "androidx-espresso-intents",
+]
+camerax = [
+    "camerax-core",
+    "camerax-camera2",
+    "camerax-lifecycle",
+    "camerax-view",
+    "camerax-video",
+    "camerax-extensions",
+]
+media3 = ["media3-exoplayer", "media3-ui", "media3-session", "media3-common"]
+ink-drawing = [
+    "ink-authoring",
+    "ink-authoring-compose",
+    "ink-brush",
+    "ink-brush-compose",
+    "ink-geometry",
+    "ink-rendering",
+    "ink-strokes",
+    "ink-nativeloader",
+    "ink-storage",
+]
+web-fetch = ["jsoup", "readability4j"]
+file-handling = ["pdfbox-android", "commons-compress", "androidx-documentfile"]
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+android-test = { id = "com.android.test", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
+ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlintGradle" }
+kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }
+dependency-guard = { id = "com.dropbox.dependency-guard", version.ref = "dependencyGuard" }
+versions = { id = "io.github.ben-manes.versions", version.ref = "gradleVersionsPlugin" }
+androidx-benchmark = { id = "androidx.benchmark", version.ref = "androidxBenchmark" }
+dependency-analysis = { id = "com.autonomousapps.dependency-analysis", version.ref = "dependencyAnalysis" }
+owasp-dependencycheck = { id = "org.owasp.dependencycheck", version.ref = "owaspDependencyCheck" }
+license-report = { id = "com.github.jk1.dependency-license-report", version.ref = "licenseReport" }
+dexcount = { id = "com.getkeepsafe.dexcount", version.ref = "dexcount" }
+# NOTE: no Apollo Gradle plugin entry here — that plugin requires a
+# concrete GraphQL schema + .graphql operation files to code-generate
+# against, and fails the build immediately if applied without one.
+# This project has no fixed GraphQL backend yet (Section: Networking
+# is generic "be able to talk GraphQL when a server is named", not "we
+# already have one"), so only apollo-runtime (the manual/runtime
+# client, usable without codegen) is wired in app/build.gradle.kts.
+# Add the plugin + a schema.graphqls once a real endpoint exists.
+# NOTE: no androidx.baselineprofile plugin entry here either — Baseline
+# Profiles need a dedicated com.android.test-type Gradle module (a
+# ":baselineprofile" sibling to ":app", per Google's own module
+# template) to host the profile-generation instrumentation test; that's
+# a structural, multi-file addition (new module + settings.gradle.kts
+# entry + its own build.gradle.kts) rather than a version-catalog-only
+# change, so it's tracked as a separate follow-up rather than half-wired
+# here with no module to actually apply it in.

@@ -1,0 +1,22 @@
+title = "ARTIFICER-X gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented placeholder templates and CI-generated, git-ignored files — never real secrets committed to history"
+paths = [
+    '''local\.properties\.example$''',
+    # local.properties itself is written fresh by CI on every run (see
+    # .github/workflows/build.yml's "Write local.properties" step) and
+    # is git-ignored — it legitimately contains real secret VALUES by
+    # design (they're injected from GitHub Actions secrets so Gradle
+    # can build), but it is never committed, so scanning it produces
+    # only false-positive noise about secrets that were never at risk
+    # of being checked in. Gitleaks's job here is catching secrets in
+    # *tracked* files/history, which this isn't.
+    '''(^|/)local\.properties$''',
+    # Same reasoning — a decoded release keystore written transiently
+    # by CI from RELEASE_KEYSTORE_BASE64, never committed.
+    '''keystore/.*\.(p12|jks|keystore)$'''
+]

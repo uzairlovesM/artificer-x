@@ -1,0 +1,4 @@
+-keepattributes *Annotation*
+-keep class com.waheed.artificerx.data.remote.dto.** { *; }
+-keepclassmembers class com.waheed.artificerx.data.remote.dto.** { *; }
+-dontwarn kotlinx.serialization.**

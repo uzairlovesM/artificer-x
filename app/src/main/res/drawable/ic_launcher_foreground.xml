@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer gold ring -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFD700"
+        android:strokeWidth="4"
+        android:pathData="M54,24a30,30 0,0 1,0 60a30,30 0,0 1,0 -60z" />
+    <!-- Stylized "A" monogram for ARTIFICER, built from paths (no font/text dependency in vector art) -->
+    <path
+        android:fillColor="#FFD700"
+        android:pathData="M54,36 L68,72 L61,72 L58,64 L50,64 L47,72 L40,72 Z M54,48 L51,58 L57,58 Z" />
+    <!-- Small purple accent spark, top-right, representing the agent/AI spark -->
+    <path
+        android:fillColor="#7B4FE0"
+        android:pathData="M74,30 l3,7 l7,3 l-7,3 l-3,7 l-3,-7 l-7,-3 l7,-3 z" />
+</vector>

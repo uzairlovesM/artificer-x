@@ -1,0 +1,23 @@
+build:
+  maxIssues: -1
+  weights:
+complexity:
+  active: true
+  LongMethod:
+    threshold: 80
+  LongParameterList:
+    functionThreshold: 8
+style:
+  active: true
+  MagicNumber:
+    active: false
+naming:
+  active: true
+  FunctionNaming:
+    # @Composable functions are PascalCase by official Jetpack Compose
+    # convention (they read as emitting a UI "thing", not performing an
+    # action) — same reasoning as ktlint_function_naming_ignore_when_
+    # annotated_with = Composable in .editorconfig. Without this,
+    # detekt's naming rule flags every @Composable fun in the project
+    # as a false positive.
+    ignoreAnnotated: ["Composable"]

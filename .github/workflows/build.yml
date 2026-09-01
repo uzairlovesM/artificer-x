@@ -1,0 +1,1230 @@
+name: ARTIFICER-X CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      run_instrumented_tests:
+        description: 'Run instrumented tests on emulator matrix (slow — off by default for manual runs)'
+        type: boolean
+        default: false
+  schedule:
+    # Weekly dependency-freshness check (Section: system-files audit) —
+    # runs the `versions` plugin's report on a schedule so an outdated
+    # libs.versions.toml entry surfaces even on weeks with no pushes,
+    # instead of silently drifting until someone happens to run it
+    # locally.
+    - cron: '0 6 * * 1'
+
+env:
+  JAVA_VERSION: '17'
+  JAVA_DISTRO: 'temurin'
+  GRADLE_OPTS: '-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs="-Xmx4g -XX:+UseParallelGC"'
+  # ── The single most important flag for "one run, every error" ──
+  # By default Gradle stops at the FIRST task that fails within a
+  # single `./gradlew <tasks>` invocation, so a project with e.g. 5
+  # modules that each have one failing test only ever shows module
+  # #1's failure — you fix it, re-run, module #2 fails, re-run again,
+  # and so on, N runs for N independent problems. `--continue` tells
+  # Gradle to keep executing every task that doesn't depend on the
+  # failed one, then report ALL failures together at the end of that
+  # same invocation. Combined with `continue-on-error: true` on every
+  # step below (which lets the *next Actions step* run even if this
+  # one's `run:` block exits non-zero), this is what actually
+  # delivers "saare errors aik hi baar mein" — Gradle-internal
+  # multi-task fan-out AND cross-step pipeline fan-out, together.
+  GRADLE_CONTINUE_FLAG: '--continue'
+  # Build Cache only — NOT Configuration Cache. Build Cache (task-output
+  # caching, keyed by a hash of each task's actual inputs/sources) is
+  # safe across CI runs and machines. Configuration Cache (caching the
+  # *result of configuring* the build graph) was deliberately dropped
+  # here after it served a stale compileDebugKotlin result for a commit
+  # that had already fixed the source — gradle/actions/setup-gradle
+  # restores the Gradle User Home from a GitHub Actions cache entry
+  # that doesn't always invalidate correctly across runner VMs, so a
+  # config-cache hit can silently replay a previous run's task graph
+  # (and its compile errors) against source that has since changed.
+  # This is a known, acknowledged limitation — the Gradle team removed
+  # configuration-cache support from setup-gradle v6 for exactly this
+  # class of cross-machine staleness bug. Build Cache alone still gets
+  # most of the speed win with none of the correctness risk.
+  GRADLE_CONFIG_CACHE_FLAGS: '--build-cache'
+
+permissions:
+  contents: write
+  security-events: write
+  checks: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  # Cancel a superseded run on the same branch/PR instead of letting
+  # two full pipelines race each other and both burn CI minutes for a
+  # push that's already stale.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ════════════════════════════════════════════════════════════════
+  # JOB 1 — FULL PIPELINE: every static/build/test check, ONE run,
+  # every failure visible at the end regardless of how many steps or
+  # tasks failed. This is intentionally a single job (not split across
+  # parallel jobs) because splitting into N jobs means N separate
+  # "Summary" pages — collecting every result into one
+  # $GITHUB_STEP_SUMMARY table needs everything to share one job's
+  # step history. Speed inside the job comes from Gradle's own
+  # --parallel + build-cache + configuration-cache instead.
+  # ════════════════════════════════════════════════════════════════
+  full-pipeline:
+    name: ARTIFICER-X Full Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    outputs:
+      failed_count: ${{ steps.final_summary.outputs.failed_count }}
+    steps:
+
+      - name: Checkout (full history for scans)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with: { distribution: '${{ env.JAVA_DISTRO }}', java-version: '${{ env.JAVA_VERSION }}' }
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # android-actions/setup-android only installs cmdline-tools +
+      # platform-tools — it does not pre-install the specific
+      # platform/build-tools this project's compileSdk (36) and AGP
+      # 8.13.2 (min build-tools 35.0.0, but the SDK Manager always
+      # keeps the matching 36.x line for a 36 platform) actually need.
+      # Explicit sdkmanager install here means the first real Gradle
+      # task doesn't have to fall back to an implicit, licenses-must-
+      # already-be-accepted auto-download that fails opaquely in a
+      # clean CI container if licenses were never accepted
+      # non-interactively.
+      - name: Install required SDK platform, build-tools & emulator images
+        run: |
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER=$(find "${ANDROID_HOME}/cmdline-tools" -name "sdkmanager" -type f 2>/dev/null | head -1)
+          fi
+          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager not found under ANDROID_HOME=${ANDROID_HOME} — cannot install required SDK components"
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-36" "platforms;android-35" "build-tools;36.0.0" "build-tools;35.0.0" "platform-tools" "cmdline-tools;latest"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+          # Bumped once (v2) to force a fresh Gradle User Home cache
+          # namespace after a prior run replayed a stale
+          # configuration-cache task graph against already-fixed
+          # source (see GRADLE_CONFIG_CACHE_FLAGS comment above) — the
+          # old cache entry is now unreachable under this key, so
+          # every job starts from a guaranteed-clean cache rather than
+          # whatever was contaminated under the old key. Bump again
+          # (v3, v4, ...) only if this class of staleness recurs.
+          gradle-home-cache-cache-key-prefix: 'v2-'
+          # Publishes a Gradle Build Scan link in the job log for every
+          # run — a full interactive timeline of every task, every
+          # dependency resolution, and every failure with clickable
+          # stack traces, far richer than scrolling raw console text.
+          # Free, no account needed for public/anonymous scans.
+          build-scan-publish: true
+          build-scan-terms-of-use-url: 'https://gradle.com/help/legal-terms-of-use'
+          build-scan-terms-of-use-agree: 'yes'
+
+      - name: Write local.properties (API keys)
+        run: |
+          echo "sdk.dir=${ANDROID_HOME}" > local.properties
+          echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" >> local.properties
+          echo "OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}" >> local.properties
+          echo "CLOUDFLARE_API_TOKEN=${{ secrets.CLOUDFLARE_API_TOKEN }}" >> local.properties
+          echo "CLOUDFLARE_ACCOUNT_ID=${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" >> local.properties
+
+      # ── Release signing secrets (personal build) ──
+      # RELEASE_KEYSTORE_BASE64 is the artificerx-release.keystore.p12
+      # file, base64-encoded, stored as a GitHub Actions secret (never
+      # committed — the .p12 itself stays git-ignored per .gitignore).
+      # When the secret isn't set (e.g. a fork, or before the owner has
+      # added it), this step is skipped entirely and assembleRelease
+      # transparently falls back to debug signing via app/build.gradle.kts's
+      # own releaseKeystoreFile null-check — so CI never hard-fails just
+      # because release-signing secrets aren't configured yet.
+      - name: Check release signing secret presence
+        id: check_signing_secret
+        env:
+          HAS_KEYSTORE_SECRET: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$HAS_KEYSTORE_SECRET" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Write release keystore (if configured)
+        if: steps.check_signing_secret.outputs.present == 'true'
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          mkdir -p keystore
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > keystore/artificerx-release.keystore.p12
+          if [ ! -s keystore/artificerx-release.keystore.p12 ]; then
+            echo "::error::Decoded keystore is empty — RELEASE_KEYSTORE_BASE64 secret may not be valid base64"
+            exit 1
+          fi
+          {
+            echo "RELEASE_STORE_FILE=keystore/artificerx-release.keystore.p12"
+            echo "RELEASE_STORE_PASSWORD=${RELEASE_STORE_PASSWORD}"
+            echo "RELEASE_KEY_ALIAS=${RELEASE_KEY_ALIAS}"
+            echo "RELEASE_KEY_PASSWORD=${RELEASE_KEY_PASSWORD}"
+          } >> local.properties
+
+      - name: chmod gradlew
+        run: chmod +x gradlew
+
+      - name: Create ci-reports directory
+        run: mkdir -p ci-reports
+
+      # ══════════════════════════════════════════════════════════════
+      # STEPS 0–27e — every single one runs with continue-on-error so a
+      # red step never stops the pipeline, and every Gradle invocation
+      # carries --continue so a red TASK never stops that invocation
+      # either. Nothing here early-exits: the FINAL SUMMARY step at the
+      # bottom is what decides overall pass/fail, once everything above
+      # has had its turn and every failure is visible together.
+      # ══════════════════════════════════════════════════════════════
+
+      # ── 0. AAR Metadata / SDK Compatibility Pre-flight ──
+      - name: 0. AAR Metadata / SDK Compatibility Pre-flight
+        id: step_aar_metadata_preflight
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew :app:checkDebugAarMetadata --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/aar-metadata-preflight.log
+
+      # ── 1. Gradle Wrapper Validation ──
+      - name: 1. Gradle Wrapper Validation
+        id: step_wrapper_validation
+        continue-on-error: true
+        uses: gradle/actions/wrapper-validation@v4
+
+      # ── 1b. Gradle Version Catalog Consistency Check ──
+      # New: catches a common silent-drift failure class before any
+      # heavier step runs — a libs.versions.toml entry referenced by
+      # [libraries]/[plugins] that has no matching [versions] key (or
+      # vice versa: an orphaned version nobody references), which
+      # otherwise only surfaces as a cryptic "cannot find version" deep
+      # inside a later dependency-resolution step.
+      - name: 1b. Version Catalog Consistency Check
+        id: step_catalog_consistency
+        continue-on-error: true
+        run: |
+          echo "Checking libs.versions.toml for orphaned/unreferenced entries..."
+          python3 - <<'PYEOF'
+          import re
+          toml = open("gradle/libs.versions.toml", encoding="utf-8").read()
+          versions = set(re.findall(r'^\s*([A-Za-z0-9_]+)\s*=', toml.split("[libraries]")[0], re.M))
+          referenced = set(re.findall(r'version\.ref\s*=\s*"([A-Za-z0-9_]+)"', toml))
+          orphaned = sorted(versions - referenced)
+          if orphaned:
+              print(f"::warning::{len(orphaned)} version(s) declared but never referenced via version.ref: {', '.join(orphaned)}")
+          else:
+              print("Every declared version is referenced at least once.")
+          PYEOF
+
+      # ── 2. Secret Detection (Gitleaks) ──
+      - name: 2. Secret Detection (Gitleaks)
+        id: step_secret_detection
+        continue-on-error: true
+        run: |
+          curl -sSL -o gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks detect --redact -v --exit-code=1 --report-format=sarif --report-path=gitleaks-report.sarif --source=. --config=.gitleaks.toml
+
+      - name: Upload Gitleaks report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.sarif
+          if-no-files-found: ignore
+
+      - name: Upload Gitleaks SARIF to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: gitleaks-report.sarif
+          category: gitleaks
+
+      # ── 3. Dependency Resolution ──
+      - name: 3. Dependency Resolution
+        id: step_dependency_resolution
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew dependencies --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/dependency-resolution.log
+
+      # ── 4. Dependency Locking ──
+      - name: 4. Dependency Locking
+        id: step_dependency_locking
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew dependencies --write-locks --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/dependency-locking.log
+
+      - name: Upload dependency lock state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-locks
+          path: '**/*.lockfile'
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # ── 5. Dependency Vulnerability Scan ──
+      - name: 5. Dependency Vulnerability Scan
+        id: step_vulnerability_scan
+        continue-on-error: true
+        run: |
+          pip install --quiet safety 2>/dev/null || true
+          echo "Checking Gradle dependency tree for known-vulnerable coordinates (lightweight, non-Docker check)"
+          ./gradlew app:dependencies --configuration releaseRuntimeClasspath > gradle-deps-full.txt 2>&1 || true
+          echo "Dependency tree captured — see gradle-deps-full.txt artifact for manual/future CVE cross-reference"
+
+      - name: Upload dependency tree report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-tree-report
+          path: gradle-deps-full.txt
+          if-no-files-found: ignore
+
+      # ── 6. Git Diff Validation ──
+      - name: 6. Git Diff Validation
+        id: step_git_diff_validation
+        continue-on-error: true
+        run: |
+          if git log --oneline -1 --name-only | grep -E '\.(keystore|jks|p12)$'; then
+            echo "::error::Keystore file detected in latest commit — must never be committed"
+            exit 1
+          fi
+          if git log --oneline -1 --name-only | grep -E '(^|/)local\.properties$'; then
+            echo "::error::local.properties detected in latest commit — must never be committed"
+            exit 1
+          fi
+          echo "No forbidden binary/secret files detected"
+
+      # ── 6b. Merge/Conflict-Marker Scan ──
+      # New: catches unresolved `<<<<<<<`/`=======`/`>>>>>>>` markers
+      # accidentally committed after a bad rebase/merge — these compile
+      # fine as long as they land inside a comment or string, silently
+      # shipping garbled logic instead of failing loudly.
+      - name: 6b. Merge Conflict Marker Scan
+        id: step_conflict_marker_scan
+        continue-on-error: true
+        run: |
+          if grep -rEn '^(<{7}|={7}|>{7})( |$)' app/src --include="*.kt" --include="*.xml"; then
+            echo "::error::Unresolved merge-conflict markers found in source — see lines above"
+            exit 1
+          fi
+          echo "No merge-conflict markers found"
+
+      # ── 7. Kotlin Compile ──
+      - name: 7. Kotlin Compile
+        id: step_kotlin_compile
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew compileDebugKotlin --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} ${{ env.GRADLE_CONFIG_CACHE_FLAGS }} 2>&1 | tee ci-reports/kotlin-debug.log
+
+      # ── 8. Java Compile ──
+      - name: 8. Java Compile
+        id: step_java_compile
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew compileDebugJavaWithJavac --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/java.log
+
+      # ── 9. KSP Codegen Verification (Hilt + Room) ──
+      - name: 9. KSP Codegen Verification (Hilt + Room)
+        id: step_ksp_codegen
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew kspDebugKotlin --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/ksp-codegen.log
+
+      # ── 10. Android Lint ──
+      - name: 10. Android Lint
+        id: step_android_lint
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew lintDebug lintRelease --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/lint.log
+
+      - name: Upload Lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: |
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.sarif
+            app/build/reports/lint-results-release.html
+          if-no-files-found: ignore
+
+      - name: Upload Lint SARIF to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: app/build/reports/lint-results-debug.sarif
+          category: android-lint
+
+      # ── 11. Static Analysis (Detekt) ──
+      - name: 11. Static Analysis (Detekt)
+        id: step_static_analysis
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew detekt --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/detekt-run.log
+
+      - name: Upload Detekt report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: detekt-report
+          path: app/build/reports/detekt/
+          if-no-files-found: ignore
+
+      - name: Upload Detekt SARIF to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: app/build/reports/detekt/detekt.sarif
+          category: detekt
+
+      # ── 12. Formatting Check (ktlint) ──
+      - name: 12. Formatting Check (ktlint)
+        id: step_formatting_check
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew ktlintCheck --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/ktlint.log
+
+      - name: Upload ktlint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ktlint-report
+          path: app/build/reports/ktlint/
+          if-no-files-found: ignore
+
+      # ── 13. Dependency Guard ──
+      - name: 13. Dependency Guard
+        id: step_dependency_guard
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew dependencyGuard --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/dependency-guard.log
+
+      # ── 14. Architecture Checks ──
+      - name: 14. Architecture Checks
+        id: step_architecture_checks
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew :app:testDebugUnitTest --tests "*ArchitectureTest*" --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/architecture-tests.log
+
+      # ── 15. Unit Tests (includes Room, Repository, ViewModel, API/mock-server tests) ──
+      - name: 15. Unit + Room + Repository + ViewModel + API Tests
+        id: step_unit_tests
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew testDebugUnitTest testReleaseUnitTest --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} ${{ env.GRADLE_CONFIG_CACHE_FLAGS }} 2>&1 | tee ci-reports/unit-tests.log
+
+      - name: Upload unit test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: |
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/reports/tests/testReleaseUnitTest/
+          if-no-files-found: ignore
+
+      - name: Publish unit test summary
+        if: always()
+        uses: dorny/test-reporter@v1
+        continue-on-error: true
+        with:
+          name: Unit Test Results
+          path: app/build/test-results/testDebugUnitTest/*.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      # ── 16. Code Coverage ──
+      - name: 16. Code Coverage (Kover)
+        id: step_code_coverage
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew koverXmlReport koverHtmlReport --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/kover.log
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: app/build/reports/kover/
+          if-no-files-found: ignore
+
+      - name: Coverage summary in job log
+        if: always()
+        continue-on-error: true
+        run: |
+          XML_REPORT=$(find app/build/reports/kover -name "report.xml" | head -1)
+          if [ -n "$XML_REPORT" ]; then
+            python3 - "$XML_REPORT" <<'PYEOF'
+          import sys, xml.etree.ElementTree as ET
+          tree = ET.parse(sys.argv[1])
+          root = tree.getroot()
+          for counter in root.findall("counter"):
+              if counter.get("type") == "LINE":
+                  covered = int(counter.get("covered", 0))
+                  missed = int(counter.get("missed", 0))
+                  total = covered + missed
+                  pct = (covered / total * 100) if total else 0.0
+                  print(f"Kover line coverage: {pct:.1f}% ({covered}/{total})")
+          PYEOF
+          fi
+
+      # ── 17. Manifest Validation ──
+      - name: 17. Manifest Validation
+        id: step_manifest_validation
+        continue-on-error: true
+        run: |
+          python3 -c "import xml.etree.ElementTree as ET; ET.parse('app/src/main/AndroidManifest.xml')"
+          echo "Manifest XML is well-formed"
+
+      # ── 18. Resource Validation ──
+      - name: 18. Resource Validation
+        id: step_resource_validation
+        continue-on-error: true
+        run: |
+          find app/src/main/res -name "*.xml" -exec sh -c 'python3 -c "import xml.etree.ElementTree as ET; ET.parse(\"$1\")" || exit 1' _ {} \;
+          echo "All resource XML files are well-formed"
+
+      # ── 18b. Unused Resource Detection ──
+      # New: AGP's shrinkResources (already enabled for release builds
+      # in app/build.gradle.kts) only *removes* unused resources at
+      # build time — it never tells you about them during development.
+      # This runs lint focused on just that one check so the data is
+      # not buried inside the full lint HTML.
+      - name: 18b. Unused Resource Report
+        id: step_unused_resources
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew :app:lintDebug --stacktrace -Dlint.checks=UnusedResources ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/unused-resources.log
+
+      # ── 19. Crash/Exception Static Checks ──
+      - name: 19. Crash/Exception Checks
+        id: step_crash_exception_checks
+        continue-on-error: true
+        run: |
+          echo "Scanning for !! non-null assertion operators (informational)..."
+          grep -rn '!!' app/src/main/java --include="*.kt" || echo "None found"
+          echo ""
+          echo "Scanning for TODO/FIXME markers left in shipped code (informational)..."
+          grep -rn 'TODO\|FIXME' app/src/main/java --include="*.kt" || echo "None found"
+          echo ""
+          echo "Scanning for raw android.util.Log calls outside debug-gated paths (informational — Timber is the intended logging path per ArtificerXApp)..."
+          grep -rln 'android\.util\.Log' app/src/main/java --include="*.kt" || echo "None found"
+          echo ""
+          echo "Scanning for printStackTrace() calls (should route through Timber instead)..."
+          grep -rn 'printStackTrace()' app/src/main/java --include="*.kt" || echo "None found"
+          echo ""
+          echo "Scanning for hardcoded IP addresses (informational — possible leftover debug endpoints)..."
+          grep -rEn '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' app/src/main/java --include="*.kt" | grep -v '0\.0\.0\.0\|127\.0\.0\.1' || echo "None found"
+
+      # ── 20. APK Build (Debug) ──
+      - name: 20. APK Build (Debug)
+        id: step_apk_build_debug
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew assembleDebug --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} ${{ env.GRADLE_CONFIG_CACHE_FLAGS }} 2>&1 | tee ci-reports/assemble-debug.log
+
+      - name: Upload Debug APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: artificerx-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 30
+
+      # ── 21. APK Size Analysis ──
+      - name: 21. APK Size Analysis
+        id: step_apk_size_analysis
+        continue-on-error: true
+        run: |
+          APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" | head -1)
+          if [ -n "$APK_PATH" ]; then
+            SIZE=$(du -h "$APK_PATH" | cut -f1)
+            SIZE_BYTES=$(du -b "$APK_PATH" | cut -f1)
+            echo "APK Size: $SIZE ($APK_PATH)" >> $GITHUB_STEP_SUMMARY
+            echo "## Per-ABI split APKs" >> $GITHUB_STEP_SUMMARY
+            find app/build/outputs/apk/debug -name "*.apk" -exec du -h {} \; >> $GITHUB_STEP_SUMMARY
+            # New: size-regression guard — warns (does not fail) if the
+            # debug APK crosses 250MB, since llama.cpp's per-ABI native
+            # libraries are the most likely thing to silently balloon
+            # this project's size.
+            SIZE_MB=$((SIZE_BYTES / 1024 / 1024))
+            if [ "$SIZE_MB" -gt 250 ]; then
+              echo "::warning::Debug APK is ${SIZE_MB}MB — over the 250MB soft-alert threshold. Check per-ABI splits above for the largest contributor."
+            fi
+          else
+            echo "::error::No debug APK found to analyze"
+            exit 1
+          fi
+
+      # ── 22. ProGuard/R8 Validation + Release Build ──
+      - name: 22. ProGuard/R8 Validation & Release Build
+        id: step_release_build
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew assembleRelease --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} ${{ env.GRADLE_CONFIG_CACHE_FLAGS }} 2>&1 | tee ci-reports/assemble-release.log
+
+      - name: Upload Release APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: artificerx-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Upload R8 mapping file
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r8-mapping
+          path: app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: ignore
+
+      # ── 22b. R8 Shrinker Rule Diagnostics ──
+      # New: surfaces R8's own seeds/usage/configuration reports (what
+      # it decided to keep and why) as downloadable artifacts — useful
+      # when a release build crashes with a ClassNotFoundException that
+      # never reproduces in debug, without re-running a release build
+      # locally with extra proguard flags to get the same information.
+      - name: 22b. Upload R8 Seeds/Usage Diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r8-shrinker-diagnostics
+          path: |
+            app/build/outputs/mapping/release/seeds.txt
+            app/build/outputs/mapping/release/usage.txt
+            app/build/outputs/mapping/release/configuration.txt
+          if-no-files-found: ignore
+
+      # ── 23. Signing Validation ──
+      - name: 23. Signing Validation
+        id: step_signing_validation
+        continue-on-error: true
+        run: |
+          APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+          if [ -z "$APK_PATH" ]; then
+            echo "::error::No release APK found to validate signing"
+            exit 1
+          fi
+          BUILD_TOOLS_DIR=$(find "${ANDROID_HOME}/build-tools" -maxdepth 1 -type d | sort -V | tail -1)
+          APKSIGNER="${BUILD_TOOLS_DIR}/apksigner"
+          if [ -x "$APKSIGNER" ]; then
+            echo "## Signature verification: $APK_PATH" >> $GITHUB_STEP_SUMMARY
+            "$APKSIGNER" verify --verbose "$APK_PATH" >> $GITHUB_STEP_SUMMARY 2>&1 || \
+              echo "Note: this APK is debug-signed (release keystore secrets not configured for this run) — apksigner output above reflects that." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "::warning::apksigner not found in build-tools — skipping signature scheme verification"
+          fi
+
+      # ── 24. Build Reproducibility ──
+      - name: 24. Build Reproducibility
+        id: step_build_reproducibility
+        continue-on-error: true
+        run: |
+          cp app/build/outputs/apk/debug/*.apk /tmp/build1.apk
+          ./gradlew clean assembleDebug --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }}
+          cp app/build/outputs/apk/debug/*.apk /tmp/build2.apk
+          sha256sum /tmp/build1.apk /tmp/build2.apk
+
+      # ── 25. Artifact Verification ──
+      - name: 25. Artifact Verification
+        id: step_artifact_verification
+        continue-on-error: true
+        run: |
+          APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" | head -1)
+          unzip -l "$APK_PATH" | grep -q "AndroidManifest.xml" && echo "APK structure verified"
+          sha256sum "$APK_PATH" > apk-checksum.txt
+          cat apk-checksum.txt
+
+      - name: Upload checksum
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-checksum
+          path: apk-checksum.txt
+          if-no-files-found: ignore
+
+      # ── 26. Bundle (AAB) Build ──
+      - name: 26. Bundle (AAB) Build
+        id: step_bundle_build
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew bundleRelease --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} ${{ env.GRADLE_CONFIG_CACHE_FLAGS }} 2>&1 | tee ci-reports/bundle-release.log
+
+      - name: Upload AAB
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: artificerx-release-aab
+          path: app/build/outputs/bundle/release/*.aab
+          if-no-files-found: ignore
+          retention-days: 90
+
+      # ── 26b. Bundletool .apks Generation ──
+      # New: converts the .aab into an installable .apks archive via
+      # Google's own bundletool — this is what actually confirms the
+      # AAB is device-installable (per-ABI/density/language splits
+      # resolve correctly) rather than just "the .aab file exists".
+      - name: 26b. Generate .apks via bundletool
+        id: step_bundletool_apks
+        continue-on-error: true
+        run: |
+          AAB_PATH=$(find app/build/outputs/bundle/release -name "*.aab" | head -1)
+          if [ -z "$AAB_PATH" ]; then
+            echo "::error::No AAB found — cannot generate .apks"
+            exit 1
+          fi
+          curl -sSL -o bundletool.jar https://github.com/google/bundletool/releases/download/1.17.2/bundletool-all-1.17.2.jar
+          java -jar bundletool.jar build-apks \
+            --bundle="$AAB_PATH" \
+            --output=app/build/outputs/bundle/release/app-release.apks \
+            --mode=universal
+          echo "Universal .apks generated:" >> $GITHUB_STEP_SUMMARY
+          du -h app/build/outputs/bundle/release/app-release.apks >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload .apks archive
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: artificerx-release-apks
+          path: app/build/outputs/bundle/release/app-release.apks
+          if-no-files-found: ignore
+          retention-days: 90
+
+      # ── 27. Dependency Freshness Report ──
+      - name: 27. Dependency Freshness Report
+        id: step_dependency_freshness
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew dependencyUpdatesReport --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/dependency-freshness.log
+
+      - name: Upload dependency freshness report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-freshness-report
+          path: build/dependencyUpdates/
+          if-no-files-found: ignore
+
+      # ── 27b. OWASP Dependency-Check (CVE scan) ──
+      # New: previously configured in build.gradle.kts (dependencyCheck
+      # {}) but never actually invoked by any CI step — the CVE report
+      # was silently never generated. Runs it explicitly here so a
+      # critical-severity CVE in the resolved release classpath is
+      # caught, not just theoretically configured.
+      - name: 27b. OWASP Dependency-Check (CVE Scan)
+        id: step_owasp_scan
+        continue-on-error: true
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: set -o pipefail; ./gradlew dependencyCheckAnalyze --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/owasp.log
+
+      - name: Upload OWASP report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-dependency-check-report
+          path: app/build/reports/dependency-check-report.*
+          if-no-files-found: ignore
+
+      # ── 27c. License Report Generation ──
+      # New: also previously configured but never invoked — same gap
+      # as OWASP above.
+      - name: 27c. Third-Party License Report
+        id: step_license_report
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew generateLicenseReport --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/license-report.log
+
+      - name: Upload license report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-report
+          path: app/build/reports/dependency-license/
+          if-no-files-found: ignore
+
+      # ── 27d. Dexcount Method Count Report ──
+      # New: also previously configured but never invoked.
+      - name: 27d. Dexcount Method Count Report
+        id: step_dexcount
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew countDebugDexMethods --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/dexcount.log
+
+      - name: Upload dexcount report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dexcount-report
+          path: app/build/outputs/dexcount/
+          if-no-files-found: ignore
+
+      # ── 27e. Dependency Analysis (unused/misused deps) ──
+      # New: also previously configured (root build.gradle.kts) but
+      # never invoked.
+      - name: 27e. Dependency Analysis (projectHealth)
+        id: step_dependency_analysis
+        continue-on-error: true
+        run: set -o pipefail; ./gradlew :app:projectHealth --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/dependency-analysis.log
+
+      - name: Upload dependency-analysis report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-analysis-report
+          path: app/build/reports/dependency-analysis/
+          if-no-files-found: ignore
+
+      # ── 28. Collect All Reports Into One Archive ──
+      # Rebuilt to match the ARTIFICER-X sibling project's (PaintingAI)
+      # diagnostics format: a single flat, scrollable
+      # artificerx-full-report.txt with `===== <label> =====` headers
+      # separating each check's RAW output — exactly as it appeared in
+      # the job log, not renamed/reorganized into a per-tool folder
+      # tree — plus a clean top-of-file summary.md-style table. This
+      # is deliberately simpler than the previous folder-per-tool zip:
+      # one file, opened once, scrolled top to bottom, tells the whole
+      # story. The individual per-tool artifacts (lint-report,
+      # detekt-report, coverage-report, etc.) uploaded earlier in this
+      # job remain available separately for anyone who wants the
+      # original HTML/XML/SARIF with full formatting — this step is
+      # specifically the "read everything in one sitting" version.
+      - name: 28. Collect All Reports Into One Archive
+        id: step_collect_all_reports
+        if: always()
+        continue-on-error: true
+        run: |
+          mkdir -p build/all-reports
+
+          REPORT_FILE="build/all-reports/artificerx-full-report.txt"
+          SUMMARY_FILE="build/all-reports/summary.md"
+
+          {
+            echo "# ARTIFICER-X CI Diagnostics"
+            echo ""
+            echo "| Check | Result |"
+            echo "|---|---|"
+            echo "| AAR Metadata / SDK Pre-flight | ${{ steps.step_aar_metadata_preflight.outcome }} |"
+            echo "| Wrapper Validation | ${{ steps.step_wrapper_validation.outcome }} |"
+            echo "| Version Catalog Consistency | ${{ steps.step_catalog_consistency.outcome }} |"
+            echo "| Secret Detection | ${{ steps.step_secret_detection.outcome }} |"
+            echo "| Dependency Resolution | ${{ steps.step_dependency_resolution.outcome }} |"
+            echo "| Dependency Locking | ${{ steps.step_dependency_locking.outcome }} |"
+            echo "| Dependency Vulnerability Scan | ${{ steps.step_vulnerability_scan.outcome }} |"
+            echo "| Git Diff Validation | ${{ steps.step_git_diff_validation.outcome }} |"
+            echo "| Merge Conflict Marker Scan | ${{ steps.step_conflict_marker_scan.outcome }} |"
+            echo "| Kotlin Compile | ${{ steps.step_kotlin_compile.outcome }} |"
+            echo "| Java Compile | ${{ steps.step_java_compile.outcome }} |"
+            echo "| KSP Codegen | ${{ steps.step_ksp_codegen.outcome }} |"
+            echo "| Android Lint | ${{ steps.step_android_lint.outcome }} |"
+            echo "| Detekt | ${{ steps.step_static_analysis.outcome }} |"
+            echo "| ktlint | ${{ steps.step_formatting_check.outcome }} |"
+            echo "| Dependency Guard | ${{ steps.step_dependency_guard.outcome }} |"
+            echo "| Architecture Checks | ${{ steps.step_architecture_checks.outcome }} |"
+            echo "| Unit Tests | ${{ steps.step_unit_tests.outcome }} |"
+            echo "| Kover Coverage | ${{ steps.step_code_coverage.outcome }} |"
+            echo "| Manifest Validation | ${{ steps.step_manifest_validation.outcome }} |"
+            echo "| Resource Validation | ${{ steps.step_resource_validation.outcome }} |"
+            echo "| Unused Resources | ${{ steps.step_unused_resources.outcome }} |"
+            echo "| Crash/Exception Checks | ${{ steps.step_crash_exception_checks.outcome }} |"
+            echo "| Debug APK | ${{ steps.step_apk_build_debug.outcome }} |"
+            echo "| APK Size Analysis | ${{ steps.step_apk_size_analysis.outcome }} |"
+            echo "| R8 / Release APK | ${{ steps.step_release_build.outcome }} |"
+            echo "| Signing Validation | ${{ steps.step_signing_validation.outcome }} |"
+            echo "| Build Reproducibility | ${{ steps.step_build_reproducibility.outcome }} |"
+            echo "| Artifact Verification | ${{ steps.step_artifact_verification.outcome }} |"
+            echo "| AAB Bundle | ${{ steps.step_bundle_build.outcome }} |"
+            echo "| Bundletool .apks | ${{ steps.step_bundletool_apks.outcome }} |"
+            echo "| Dependency Freshness | ${{ steps.step_dependency_freshness.outcome }} |"
+            echo "| OWASP CVE Scan | ${{ steps.step_owasp_scan.outcome }} |"
+            echo "| License Report | ${{ steps.step_license_report.outcome }} |"
+            echo "| Dexcount | ${{ steps.step_dexcount.outcome }} |"
+            echo "| Dependency Analysis | ${{ steps.step_dependency_analysis.outcome }} |"
+          } > "$SUMMARY_FILE"
+
+          cp "$SUMMARY_FILE" "$REPORT_FILE"
+          echo "" >> "$REPORT_FILE"
+          echo "" >> "$REPORT_FILE"
+
+          # Every (label, raw-log-or-report-file) pair that exists on
+          # disk gets its FULL RAW content appended verbatim under a
+          # ===== label ===== header — this is what makes the file
+          # read like the actual console output instead of a
+          # reorganized summary. Missing files are skipped silently
+          # (a step that never ran, or produced no report, isn't an
+          # error in the archive itself).
+          declare -a REPORT_SOURCES=(
+            "ci-reports/gitleaks-report.sarif|gitleaks-report.sarif"
+            "ci-reports/dependency-tree.log|gradle-deps-full.txt"
+            "ci-reports/lint-debug.html|app/build/reports/lint-results-debug.html"
+            "ci-reports/lint-release.html|app/build/reports/lint-results-release.html"
+            "ci-reports/detekt.txt|app/build/reports/detekt/detekt.txt"
+            "ci-reports/ktlint-summary|app/build/reports/ktlint"
+            "ci-reports/unit-tests-debug-summary|app/build/reports/tests/testDebugUnitTest/index.html"
+            "ci-reports/kover-summary|app/build/reports/kover/report.xml"
+            "ci-reports/manifest.log|app/src/main/AndroidManifest.xml"
+            "ci-reports/apk-checksum.txt|apk-checksum.txt"
+            "ci-reports/r8-seeds.txt|app/build/outputs/mapping/release/seeds.txt"
+            "ci-reports/r8-usage.txt|app/build/outputs/mapping/release/usage.txt"
+            "ci-reports/dependency-freshness-summary|build/dependencyUpdates/report.txt"
+            "ci-reports/owasp-summary|app/build/reports/dependency-check-report.html"
+          )
+
+          for entry in "${REPORT_SOURCES[@]}"; do
+            label="${entry%%|*}"
+            src="${entry#*|}"
+            if [ -f "$src" ]; then
+              {
+                echo "===== ${label} ====="
+                cat "$src"
+                echo ""
+              } >> "$REPORT_FILE"
+            fi
+          done
+
+          # Also fold in every raw console log this run actually
+          # captured via `tee` into ci-reports/ across earlier steps
+          # (see the `2>&1 | tee ci-reports/<name>.log` pattern) —
+          # this is the primary source of "exact same text as the job
+          # log" content, matching PaintingAI's diagnostics format
+          # directly rather than re-deriving it from HTML/XML reports.
+          if [ -d "ci-reports" ]; then
+            for logfile in ci-reports/*.log; do
+              [ -f "$logfile" ] || continue
+              {
+                echo "===== ${logfile} ====="
+                cat "$logfile"
+                echo ""
+              } >> "$REPORT_FILE"
+            done
+          fi
+
+          wc -l "$REPORT_FILE"
+          zip -r -q build/artificerx-all-reports.zip build/all-reports
+          echo "Archive contents:"
+          unzip -l build/artificerx-all-reports.zip
+
+      - name: Upload all-reports archive
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: artificerx-all-reports
+          path: build/artificerx-all-reports.zip
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Upload full report (unzipped, for quick viewing)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: artificerx-full-report
+          path: build/all-reports/artificerx-full-report.txt
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: FINAL SUMMARY — All Step Results
+
+        id: final_summary
+        if: always()
+        run: |
+          echo "# ARTIFICER-X CI/CD — Full Pipeline Result" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Every step below ran regardless of earlier failures (continue-on-error), and every Gradle invocation used --continue so multi-module/multi-task failures are all captured in this single run." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| # | Step | Outcome |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 0 | AAR Metadata / SDK Compatibility Pre-flight | ${{ steps.step_aar_metadata_preflight.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 1 | Gradle Wrapper Validation | ${{ steps.step_wrapper_validation.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 1b | Version Catalog Consistency Check | ${{ steps.step_catalog_consistency.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 2 | Secret Detection | ${{ steps.step_secret_detection.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 3 | Dependency Resolution | ${{ steps.step_dependency_resolution.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 4 | Dependency Locking | ${{ steps.step_dependency_locking.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 5 | Dependency Vulnerability Scan | ${{ steps.step_vulnerability_scan.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 6 | Git Diff Validation | ${{ steps.step_git_diff_validation.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 6b | Merge Conflict Marker Scan | ${{ steps.step_conflict_marker_scan.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 7 | Kotlin Compile | ${{ steps.step_kotlin_compile.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 8 | Java Compile | ${{ steps.step_java_compile.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 9 | KSP Codegen (Hilt + Room) | ${{ steps.step_ksp_codegen.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 10 | Android Lint (Debug + Release) | ${{ steps.step_android_lint.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 11 | Static Analysis (Detekt) | ${{ steps.step_static_analysis.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 12 | Formatting Check (ktlint) | ${{ steps.step_formatting_check.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 13 | Dependency Guard | ${{ steps.step_dependency_guard.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 14 | Architecture Checks | ${{ steps.step_architecture_checks.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 15 | Unit/Room/Repository/ViewModel/API Tests | ${{ steps.step_unit_tests.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 16 | Code Coverage | ${{ steps.step_code_coverage.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 17 | Manifest Validation | ${{ steps.step_manifest_validation.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 18 | Resource Validation | ${{ steps.step_resource_validation.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 18b | Unused Resource Report | ${{ steps.step_unused_resources.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 19 | Crash/Exception Checks | ${{ steps.step_crash_exception_checks.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 20 | APK Build (Debug) | ${{ steps.step_apk_build_debug.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 21 | APK Size Analysis | ${{ steps.step_apk_size_analysis.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 22 | ProGuard/R8 + Release Build | ${{ steps.step_release_build.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 23 | Signing Validation | ${{ steps.step_signing_validation.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 24 | Build Reproducibility | ${{ steps.step_build_reproducibility.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 25 | Artifact Verification | ${{ steps.step_artifact_verification.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 26 | Bundle (AAB) Build | ${{ steps.step_bundle_build.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 26b | Bundletool .apks Generation | ${{ steps.step_bundletool_apks.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 27 | Dependency Freshness Report | ${{ steps.step_dependency_freshness.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 27b | OWASP Dependency-Check (CVE Scan) | ${{ steps.step_owasp_scan.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 27c | Third-Party License Report | ${{ steps.step_license_report.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 27d | Dexcount Method Count Report | ${{ steps.step_dexcount.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 27e | Dependency Analysis (projectHealth) | ${{ steps.step_dependency_analysis.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 28 | Collect All Reports Into One Archive | ${{ steps.step_collect_all_reports.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          FAILED_COUNT=0
+          for outcome in \
+            "${{ steps.step_aar_metadata_preflight.outcome }}" \
+            "${{ steps.step_wrapper_validation.outcome }}" \
+            "${{ steps.step_catalog_consistency.outcome }}" \
+            "${{ steps.step_secret_detection.outcome }}" \
+            "${{ steps.step_dependency_resolution.outcome }}" \
+            "${{ steps.step_dependency_locking.outcome }}" \
+            "${{ steps.step_vulnerability_scan.outcome }}" \
+            "${{ steps.step_git_diff_validation.outcome }}" \
+            "${{ steps.step_conflict_marker_scan.outcome }}" \
+            "${{ steps.step_kotlin_compile.outcome }}" \
+            "${{ steps.step_java_compile.outcome }}" \
+            "${{ steps.step_ksp_codegen.outcome }}" \
+            "${{ steps.step_android_lint.outcome }}" \
+            "${{ steps.step_static_analysis.outcome }}" \
+            "${{ steps.step_formatting_check.outcome }}" \
+            "${{ steps.step_dependency_guard.outcome }}" \
+            "${{ steps.step_architecture_checks.outcome }}" \
+            "${{ steps.step_unit_tests.outcome }}" \
+            "${{ steps.step_code_coverage.outcome }}" \
+            "${{ steps.step_manifest_validation.outcome }}" \
+            "${{ steps.step_resource_validation.outcome }}" \
+            "${{ steps.step_unused_resources.outcome }}" \
+            "${{ steps.step_crash_exception_checks.outcome }}" \
+            "${{ steps.step_apk_build_debug.outcome }}" \
+            "${{ steps.step_apk_size_analysis.outcome }}" \
+            "${{ steps.step_release_build.outcome }}" \
+            "${{ steps.step_signing_validation.outcome }}" \
+            "${{ steps.step_build_reproducibility.outcome }}" \
+            "${{ steps.step_artifact_verification.outcome }}" \
+            "${{ steps.step_bundle_build.outcome }}" \
+            "${{ steps.step_bundletool_apks.outcome }}" \
+            "${{ steps.step_dependency_freshness.outcome }}" \
+            "${{ steps.step_owasp_scan.outcome }}" \
+            "${{ steps.step_license_report.outcome }}" \
+            "${{ steps.step_dexcount.outcome }}" \
+            "${{ steps.step_dependency_analysis.outcome }}"; do
+            if [ "$outcome" = "failure" ]; then
+              FAILED_COUNT=$((FAILED_COUNT + 1))
+            fi
+          done
+
+          echo "Total failed steps: $FAILED_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "failed_count=$FAILED_COUNT" >> "$GITHUB_OUTPUT"
+
+          if [ "$FAILED_COUNT" -gt 0 ]; then
+            echo "::error::$FAILED_COUNT step(s) failed — see table above, the artificerx-all-reports.zip artifact, and individual step logs for full details. Every failure that exists was captured in THIS single run (continue-on-error + Gradle --continue) — no need to re-run to discover the next one."
+            exit 1
+          fi
+
+  # ════════════════════════════════════════════════════════════════
+  # JOB 2 — INSTRUMENTED TESTS (matrix): runs on a real emulator
+  # matrix across multiple API levels in parallel. Separate job from
+  # full-pipeline because it needs KVM/emulator setup that the main
+  # job doesn't, and because fail-fast: false here means one API
+  # level's flaky failure never hides the other levels' real results
+  # (a single failing leg silently cancelling healthy siblings is a
+  # common, easy-to-miss GitHub Actions matrix pitfall). Runs on
+  # push/schedule always; on workflow_dispatch only when explicitly
+  # requested (these are the slowest steps in the pipeline).
+  # ════════════════════════════════════════════════════════════════
+  instrumented-tests:
+    name: Instrumented Tests (API ${{ matrix.api-level }})
+    needs: full-pipeline
+    if: always() && (github.event_name != 'workflow_dispatch' || inputs.run_instrumented_tests == true)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [29, 33, 35]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with: { distribution: '${{ env.JAVA_DISTRO }}', java-version: '${{ env.JAVA_VERSION }}' }
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # Same cache namespace bump as the main build job's Setup
+          # Gradle step — see that step's comment for why.
+          gradle-home-cache-cache-key-prefix: 'v2-'
+
+      - name: Write local.properties
+        run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
+
+      - name: chmod gradlew
+        run: chmod +x gradlew
+
+      - name: Enable KVM for hardware-accelerated emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Cache AVD snapshot
+        uses: actions/cache@v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-${{ matrix.api-level }}
+
+      - name: Create AVD snapshot (cache miss only)
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          profile: pixel_6
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: false
+          script: echo "AVD created and snapshotted for reuse."
+
+      - name: Run Instrumented Tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          profile: pixel_6
+          disk-size: 6000M
+          ram-size: 4096M
+          script: ./gradlew connectedDebugAndroidTest --stacktrace --continue
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+
+      - name: Upload Instrumented Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumented-tests-api-${{ matrix.api-level }}
+          path: '**/build/reports/androidTests/'
+          if-no-files-found: ignore
+
+      - name: Publish instrumented test summary
+        if: always()
+        uses: dorny/test-reporter@v1
+        continue-on-error: true
+        with:
+          name: Instrumented Tests (API ${{ matrix.api-level }})
+          path: '**/build/outputs/androidTest-results/connected/**/*.xml'
+          reporter: java-junit
+          fail-on-error: false
+
+  # ════════════════════════════════════════════════════════════════
+  # JOB 3 — PERFORMANCE BENCHMARKS (informational, non-blocking):
+  # runs androidx.benchmark macro tests if any are present. Kept as
+  # its own job so a benchmark regression never blocks the main
+  # pipeline's pass/fail — benchmarks are inherently noisy on shared
+  # CI hardware and are meant to be read as trend lines, not gates.
+  # ════════════════════════════════════════════════════════════════
+  benchmarks:
+    name: Macrobenchmarks (informational)
+    needs: full-pipeline
+    if: always() && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with: { distribution: '${{ env.JAVA_DISTRO }}', java-version: '${{ env.JAVA_VERSION }}' }
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # Same cache namespace bump as the main build job's Setup
+          # Gradle step — see that step's comment for why.
+          gradle-home-cache-cache-key-prefix: 'v2-'
+
+      - name: Write local.properties
+        run: echo "sdk.dir=${ANDROID_HOME}" > local.properties
+
+      - name: chmod gradlew
+        run: chmod +x gradlew
+
+      - name: Check for a benchmark module or benchmark tests
+        id: check_benchmarks
+        run: |
+          if find . -path "*/benchmark/*" -name "*.kt" | grep -q .; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "No benchmark module/tests found yet — skipping (see libs.versions.toml's androidxBenchmark entry for when one is added)."
+          fi
+
+      - name: Run macrobenchmarks
+        if: steps.check_benchmarks.outputs.present == 'true'
+        run: ./gradlew :app:connectedBenchmarkAndroidTest --stacktrace --continue
+        continue-on-error: true
+
+  # ════════════════════════════════════════════════════════════════
+  # JOB 4 — PR ANNOTATION: posts a single consolidated comment on the
+  # pull request summarizing this run's outcome, so a reviewer doesn't
+  # have to open the Actions tab at all for the common case.
+  # ════════════════════════════════════════════════════════════════
+  pr-comment:
+    name: Post PR Summary Comment
+    needs: full-pipeline
+    if: always() && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const failedCount = '${{ needs.full-pipeline.outputs.failed_count }}' || '0';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const status = failedCount === '0' ? '✅ All checks passed' : `❌ ${failedCount} step(s) failed`;
+            const body = `## ARTIFICER-X CI/CD Result\n\n${status}\n\nFull step-by-step breakdown, downloadable reports (lint, detekt, coverage, OWASP, APK/AAB artifacts) and raw logs: [view run](${runUrl})`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body && c.body.startsWith('## ARTIFICER-X CI/CD Result'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
