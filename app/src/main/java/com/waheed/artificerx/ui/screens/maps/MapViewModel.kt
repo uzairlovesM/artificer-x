@@ -1,5 +1,6 @@
 package com.waheed.artificerx.ui.screens.maps
 
+import android.annotation.SuppressLint
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.waheed.artificerx.core.location.LocationFixResult
@@ -43,6 +44,14 @@ class MapViewModel
 
         fun hasLocationPermission(): Boolean = locationProvider.hasLocationPermission()
 
+        // Lint's MissingPermission check can't trace the permission check
+        // performed by hasLocationPermission() across the guard clause below
+        // into the coroutine launched by viewModelScope.launch — it only sees
+        // an unconditional call to a @RequiresPermission-annotated function.
+        // The real guard exists (return before launch, and getCurrentLocation()
+        // re-checks internally too — see LocationProvider's own doc), so this
+        // is a verified false positive, not a suppressed real bug.
+        @SuppressLint("MissingPermission")
         fun centerOnCurrentLocation() {
             if (!locationProvider.hasLocationPermission()) {
                 _uiState.value =

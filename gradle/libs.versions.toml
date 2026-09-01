@@ -215,34 +215,27 @@ uiautomator = "2.3.0"
 androidxBenchmark = "1.4.1"
 
 # ── Static analysis / quality gates ──
-# NOTE (2026-09): detekt 1.23.7 and ktlint(-gradle) 12.1.2/1.3.1 below
-# were pinned before this project's Kotlin version (see `kotlin` above)
-# was bumped to 2.3.10, and both fell out of sync as a result:
-#  - detekt 1.23.7 is compiled against Kotlin 2.0.10 and throws
-#    "detekt was compiled with Kotlin 2.0.10 but is currently running
-#    with 2.3.10" under this project's Kotlin version (see the
-#    detekt-classpath exclusion in the root build.gradle.kts for the
-#    other half of this fix — that exclusion stops the project's own
-#    Kotlin force-pin from making this worse, but detekt itself still
-#    needs to move to a 2.0.0-alpha (dev.detekt) release, or be pinned
-#    back down, to actually support 2.3.x — see
-#    https://detekt.dev/docs/introduction/compatibility/ and
-#    https://github.com/detekt/detekt/discussions/9170).
-#  - ktlintCli 1.3.1 targets Kotlin ~1.9 (ktlint's own compatibility
-#    notes: 1.3.x -> Kotlin 1.9, 1.5.x -> Kotlin 2.1, 1.7.x -> Kotlin
-#    2.2+) and throws `NoSuchFieldError: HEADER_KEYWORD` — a Kotlin
-#    compiler class ktlint's rule engine reflects into having removed
-#    a field between the two Kotlin versions. ktlintGradle 12.1.2 predates
-#    the 13.0.0 release that raised the plugin's own minimum supported
-#    Kotlin version and default ktlint pairing.
-# This sandbox has no network access to confirm exact current release
-# numbers against Maven Central at the time of this edit — bump both
-# to whatever the latest stable ktlint-gradle / ktlint-CLI (and, if
-# needed, a detekt 2.0.0-alpha build) actually is before relying on
-# this gate again, rather than trusting a guessed version string here.
+# UPDATE (2026-09): both bumped to versions confirmed (via web search)
+# compatible with this project's Kotlin 2.3.10:
+#  - ktlintCli 1.8.0 (released 2025-11-14) — ktlint's own compatibility
+#    table puts 1.7.x on Kotlin 2.2+, and 1.8.0 continues that support
+#    plus explicitly targets backward compatibility down to Kotlin 2.0.
+#    This replaces the old 1.3.1 pin, which only supported ~Kotlin 1.9
+#    and threw `NoSuchFieldError: HEADER_KEYWORD` under 2.3.10.
+#  - ktlintGradle 14.2.0 (released 2026-03-12) — post-13.0.0, so it
+#    already expects a modern ktlint/Kotlin pairing rather than the
+#    12.1.2 pin's older minimum-Kotlin assumptions.
+# detekt 1.23.7 is left as-is: it is compiled against Kotlin 2.0.10 and
+# is a known mismatch against 2.3.10 ("detekt was compiled with Kotlin
+# 2.0.10 but is currently running with 2.3.10"), but that mismatch is a
+# WARNING from detekt's own self-check, not a hard failure — the CI
+# report confirms Detekt still completed successfully. A dev.detekt
+# 2.0.0-alpha migration is a larger, separately-tracked change (see
+# https://detekt.dev/docs/introduction/compatibility/) and isn't
+# needed to unblock the release build.
 detekt = "1.23.7"
-ktlintGradle = "12.1.2"
-ktlintCli = "1.3.1"
+ktlintGradle = "14.2.0"
+ktlintCli = "1.8.0"
 kover = "0.9.1"
 dependencyGuard = "0.5.0"
 gradleVersionsPlugin = "0.61.0"

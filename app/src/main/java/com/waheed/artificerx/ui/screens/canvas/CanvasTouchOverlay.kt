@@ -18,19 +18,34 @@ import com.waheed.artificerx.domain.model.DrawToolType
  * they're rasterized — no parallel/duplicate drawing code path.
  *
  * Handles input per active tool:
- *  - BRUSH/ERASER: continuous freehand path, points accumulated for
- *    the whole gesture and flushed as one call on release (not per
- *    move-event, to avoid hundreds of tiny bitmap redraws per stroke
- *    on a budget device — Section 137).
+ *  - BRUSH/ERASER: continuous freehand path. Live points are reported
+ *    via onStrokeInProgress on every move (so the caller can render an
+ *    immediate on-screen preview overlay while the finger is still
+ *    down — without this, a stroke only appears after lift-off, which
+ *    reads as a broken/unresponsive canvas even though the underlying
+ *    draw call is correct), then the final point list is flushed once
+ *    via onStrokeComplete on release. This keeps the *committed* draw
+ *    call a single compositor write per stroke (cheap on a budget
+ *    device — Section 137) while still giving live visual feedback.
  *  - SHAPE_RECT/SHAPE_ELLIPSE/SHAPE_LINE: drag defines a bounding box
- *    from first-touch to release, single shape call on release.
+ *    from first-touch to release; live bounds reported the same way
+ *    for an in-progress outline preview, single shape call on release.
  *  - FILL: single tap triggers one flood-fill call.
  *  - EYEDROPPER: single tap samples color.
+ *
+ * All coordinates emitted here are in the CALLER'S coordinate space
+ * (i.e. whatever space the Modifier is attached in). The caller is
+ * responsible for mapping into canvas-bitmap pixel space before
+ * calling into StudioViewModel/CanvasCompositor if the two differ —
+ * see StudioScreen's screenToCanvasPx for the Fit-scaled render
+ * surface's version of that mapping.
  */
 fun Modifier.canvasTouchInput(
     toolState: DrawToolState,
     canvasSizePx: IntSize,
+    onStrokeInProgress: (points: List<Float>) -> Unit = {},
     onStrokeComplete: (points: List<Float>) -> Unit,
+    onShapeInProgress: (startX: Float, startY: Float, endX: Float, endY: Float) -> Unit = { _, _, _, _ -> },
     onShapeComplete: (startX: Float, startY: Float, endX: Float, endY: Float) -> Unit,
     onFillTap: (x: Float, y: Float) -> Unit,
     onColorPickTap: (x: Float, y: Float) -> Unit,
@@ -42,6 +57,7 @@ fun Modifier.canvasTouchInput(
                     val down = awaitFirstDown(pass = PointerEventPass.Main)
                     val points = mutableListOf(down.position.x, down.position.y)
                     down.consumeAllChanges()
+                    onStrokeInProgress(points.toList())
 
                     do {
                         val event = awaitPointerEvent()
@@ -49,6 +65,7 @@ fun Modifier.canvasTouchInput(
                         if (change.pressed) {
                             points.add(change.position.x)
                             points.add(change.position.y)
+                            onStrokeInProgress(points.toList())
                         }
                         change.consumeAllChanges()
                     } while (event.changes.any { it.pressed })
@@ -62,11 +79,13 @@ fun Modifier.canvasTouchInput(
                     val down = awaitFirstDown(pass = PointerEventPass.Main)
                     down.consumeAllChanges()
                     var lastPosition = down.position
+                    onShapeInProgress(down.position.x, down.position.y, lastPosition.x, lastPosition.y)
 
                     do {
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull() ?: break
                         lastPosition = change.position
+                        onShapeInProgress(down.position.x, down.position.y, lastPosition.x, lastPosition.y)
                         change.consumeAllChanges()
                     } while (event.changes.any { it.pressed })
 

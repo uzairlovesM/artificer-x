@@ -43,6 +43,27 @@
         android:largeHeap="true"
         tools:targetApi="35">
 
+        <!-- ArtificerXApp implements androidx.work.Configuration.Provider
+             for on-demand WorkManager initialization (wiring HiltWorkerFactory
+             in so background workers get Hilt injection). When that pattern
+             is used, WorkManager's default eager initializer — normally
+             auto-merged into the manifest via androidx.startup's
+             InitializationProvider — must be explicitly removed, or lint's
+             RemoveWorkManagerInitializer check fails release builds
+             (WorkManager would otherwise try to initialize itself twice:
+             once eagerly at app startup with default Configuration, and
+             again on-demand with the Hilt-aware one). -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

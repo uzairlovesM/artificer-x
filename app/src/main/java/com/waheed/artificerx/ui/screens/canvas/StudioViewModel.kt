@@ -18,13 +18,13 @@ import javax.inject.Inject
 
 /**
  * Owns the active canvas/project session (Section 26 Layer System,
- * Section 155 Agent Event Loop's UI-facing half). The real render
- * pipeline (bitmap compositing, undo/redo command stack, tool
- * dispatch to the agent's tool registry) lands in later phases —
- * this ViewModel establishes the state shape and layer-management
- * operations that survive unchanged once rendering is wired in,
- * so the Studio UI never needs rework, only its canvas surface gets
- * a real implementation swapped in.
+ * Section 155 Agent Event Loop's UI-facing half). Backs the real
+ * render pipeline (CanvasCompositor bitmap writes, LayerBitmapStore
+ * per-layer bitmaps) and exposes drawManualStroke/drawManualShape/
+ * fillManualTap/pickManualColor as the entry points StudioScreen's
+ * canvasTouchInput wiring calls into for finger-drawing — the same
+ * compositor calls the agent's ToolExecutor uses, so a human stroke
+ * and an agent stroke are pixel-identical in how they're rasterized.
  *
  * Registers a crash-safe flush callback (Section 147) immediately on
  * creation so unsaved layer state is captured if the process dies

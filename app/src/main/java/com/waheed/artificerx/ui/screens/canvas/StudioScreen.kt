@@ -69,10 +69,14 @@ import com.waheed.artificerx.ui.theme.glassSurface
  * Main working surface (Section 111 Mobile UI). Structure:
  *  - Top bar: project name, agent activity pulse, layer-panel toggle,
  *    settings shortcut.
- *  - Canvas area: bitmap render surface — a placeholder gradient
- *    checker board for now (the real Canvas/BitmapCompositor engine
- *    is a dedicated future phase; this establishes the exact frame
- *    the render surface will occupy so nothing shifts later).
+ *  - Canvas area: real bitmap render surface backed by
+ *    CanvasCompositor/LayerBitmapStore, with finger-drawing input
+ *    wired directly to StudioViewModel's manual-draw entry points
+ *    (drawManualStroke/drawManualShape/fillManualTap/pickManualColor)
+ *    via canvasTouchInput — touch coordinates are re-mapped from the
+ *    Fit-scaled display box into canvas-bitmap pixel space before
+ *    being forwarded, so strokes land under the finger regardless of
+ *    the device's aspect ratio.
  *  - Bottom tool palette: horizontally scrollable tool chips + a
  *    context-sensitive brush-size slider that only shows for brush-
  *    like tools.
@@ -109,6 +113,11 @@ fun StudioScreen(
                 bitmap = compositedBitmap,
                 widthPx = state.canvasWidthPx,
                 heightPx = state.canvasHeightPx,
+                toolState = state.toolState,
+                onStrokeComplete = viewModel::drawManualStroke,
+                onShapeComplete = viewModel::drawManualShape,
+                onFillTap = viewModel::fillManualTap,
+                onColorPickTap = viewModel::pickManualColor,
             )
 
             if (isLayerPanelOpen) {
@@ -215,7 +224,20 @@ private fun CanvasRenderSurface(
     bitmap: android.graphics.Bitmap?,
     widthPx: Int,
     heightPx: Int,
+    toolState: com.waheed.artificerx.domain.model.DrawToolState,
+    onStrokeComplete: (points: List<Float>) -> Unit,
+    onShapeComplete: (startX: Float, startY: Float, endX: Float, endY: Float) -> Unit,
+    onFillTap: (x: Float, y: Float) -> Unit,
+    onColorPickTap: (x: Float, y: Float) -> Unit,
 ) {
+    // Live in-progress stroke/shape, in CANVAS BITMAP pixel space —
+    // drawn as an immediate overlay so a finger drag shows visible
+    // feedback before the gesture completes and the real compositor
+    // write lands (see canvasTouchInput's own doc for why the actual
+    // bitmap write itself stays a single call on release).
+    var livePoints by remember { mutableStateOf<List<Float>?>(null) }
+    var liveShapeBounds by remember { mutableStateOf<FloatArray?>(null) }
+
     Box(
         modifier =
             Modifier
@@ -226,15 +248,124 @@ private fun CanvasRenderSurface(
         contentAlignment = Alignment.Center,
     ) {
         if (bitmap != null) {
-            androidx.compose.foundation.Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = "Canvas artwork, $widthPx by $heightPx pixels",
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .padding(4.dp),
-                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-            )
+            androidx.compose.foundation.layout.BoxWithConstraints(
+                modifier = Modifier.fillMaxSize().padding(4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                // The displayed Image uses ContentScale.Fit inside this
+                // box, so it's letterboxed to the smaller of width/height
+                // ratio — touch coordinates arrive in this Box's own
+                // coordinate space and must be re-mapped into the
+                // underlying bitmap's pixel space (which is what
+                // CanvasCompositor/StudioViewModel operate in) before
+                // being forwarded. Without this mapping, strokes land at
+                // the wrong position (or entirely off-canvas) any time
+                // the box's aspect ratio doesn't exactly match the
+                // bitmap's — which is true almost always in practice.
+                val boxWidthPx = with(androidx.compose.ui.platform.LocalDensity.current) { maxWidth.toPx() }
+                val boxHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) { maxHeight.toPx() }
+                val scale =
+                    remember(boxWidthPx, boxHeightPx, widthPx, heightPx) {
+                        minOf(boxWidthPx / widthPx.toFloat(), boxHeightPx / heightPx.toFloat())
+                    }
+                val displayedWidthPx = widthPx * scale
+                val displayedHeightPx = heightPx * scale
+                val offsetXPx = (boxWidthPx - displayedWidthPx) / 2f
+                val offsetYPx = (boxHeightPx - displayedHeightPx) / 2f
+
+                fun screenToCanvasX(x: Float): Float = ((x - offsetXPx) / scale).coerceIn(0f, widthPx.toFloat())
+
+                fun screenToCanvasY(y: Float): Float = ((y - offsetYPx) / scale).coerceIn(0f, heightPx.toFloat())
+
+                fun mapPoints(points: List<Float>): List<Float> =
+                    points.mapIndexed { index, value ->
+                        if (index % 2 == 0) screenToCanvasX(value) else screenToCanvasY(value)
+                    }
+
+                androidx.compose.foundation.Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "Canvas artwork, $widthPx by $heightPx pixels",
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .canvasTouchInput(
+                                toolState = toolState,
+                                canvasSizePx = androidx.compose.ui.unit.IntSize(widthPx, heightPx),
+                                onStrokeInProgress = { points -> livePoints = mapPoints(points) },
+                                onStrokeComplete = { points ->
+                                    livePoints = null
+                                    onStrokeComplete(mapPoints(points))
+                                },
+                                onShapeInProgress = { sx, sy, ex, ey ->
+                                    liveShapeBounds =
+                                        floatArrayOf(screenToCanvasX(sx), screenToCanvasY(sy), screenToCanvasX(ex), screenToCanvasY(ey))
+                                },
+                                onShapeComplete = { sx, sy, ex, ey ->
+                                    liveShapeBounds = null
+                                    onShapeComplete(
+                                        screenToCanvasX(sx),
+                                        screenToCanvasY(sy),
+                                        screenToCanvasX(ex),
+                                        screenToCanvasY(ey),
+                                    )
+                                },
+                                onFillTap = { x, y -> onFillTap(screenToCanvasX(x), screenToCanvasY(y)) },
+                                onColorPickTap = { x, y -> onColorPickTap(screenToCanvasX(x), screenToCanvasY(y)) },
+                            ),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                )
+
+                // Live preview overlay — drawn in the same screen space the
+                // Image occupies, converting the canvas-space live points
+                // back to screen space for rendering only (the values
+                // forwarded to the ViewModel above stay in canvas space).
+                val previewPoints = livePoints
+                val previewShape = liveShapeBounds
+                if (previewPoints != null || previewShape != null) {
+                    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                        val strokeColor =
+                            runCatching { android.graphics.Color.parseColor(toolState.brushColorHex) }
+                                .map { androidx.compose.ui.graphics.Color(it) }
+                                .getOrDefault(androidx.compose.ui.graphics.Color.White)
+                        val strokeWidthDp = toolState.brushSizePx * scale
+
+                        if (previewPoints != null && previewPoints.size >= 4) {
+                            val path =
+                                androidx.compose.ui.graphics.Path().apply {
+                                    moveTo(previewPoints[0] * scale + offsetXPx, previewPoints[1] * scale + offsetYPx)
+                                    var i = 2
+                                    while (i + 1 < previewPoints.size) {
+                                        lineTo(previewPoints[i] * scale + offsetXPx, previewPoints[i + 1] * scale + offsetYPx)
+                                        i += 2
+                                    }
+                                }
+                            drawPath(
+                                path = path,
+                                color = strokeColor,
+                                style =
+                                    androidx.compose.ui.graphics.drawscope.Stroke(
+                                        width = strokeWidthDp,
+                                        cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                        join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                                    ),
+                            )
+                        }
+
+                        if (previewShape != null) {
+                            val left = minOf(previewShape[0], previewShape[2]) * scale + offsetXPx
+                            val top = minOf(previewShape[1], previewShape[3]) * scale + offsetYPx
+                            val right = maxOf(previewShape[0], previewShape[2]) * scale + offsetXPx
+                            val bottom = maxOf(previewShape[1], previewShape[3]) * scale + offsetYPx
+                            drawRect(
+                                color = strokeColor,
+                                topLeft = androidx.compose.ui.geometry.Offset(left, top),
+                                size = androidx.compose.ui.geometry.Size(right - left, bottom - top),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidthDp),
+                            )
+                        }
+                    }
+                }
+            }
         } else {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
