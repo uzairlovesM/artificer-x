@@ -23,27 +23,33 @@ plugins {
     alias(libs.plugins.dependency.analysis)
 }
 
-// Pin every module's Kotlin Gradle plugin runtime jars (including the
-// out-of-process compile daemon's own client/daemon jars) to a single
-// resolved version via the official Kotlin BOM. Without this, Gradle
-// 8.13 + Kotlin 2.3.10 can resolve the daemon-side and client-side
-// Kotlin compiler jars to two different point releases (KGP publishes
-// a matrix of Gradle-version-specific variants), and the mismatched
-// pair throws `NoSuchMethodError` on
-// `KotlinCompilerClient.connectAndLease` the moment the daemon
-// connection handshake runs — i.e. every single compile. This is a
-// known Kotlin 2.3.x + Gradle 8.13 interaction (JetBrains YouTrack
-// KT-24735 and the wider "forward-compatibility violation" class of
-// issue), not a project code bug.
+// Pin org.jetbrains.kotlin:* artifacts to this project's Kotlin version
+// ACROSS THE APP'S OWN COMPILE/RUNTIME CLASSPATHS ONLY. This does not
+// (and must not) touch the `detekt` classpath configuration: detekt
+// bundles its own embedded Kotlin compiler and explicitly documents
+// that forcing a newer Kotlin onto that classpath breaks it with
+// "detekt was compiled with Kotlin X but is currently running with Y"
+// (https://detekt.dev/docs/gettingstarted/gradle#dependencies) — which
+// is exactly what happened when this force previously applied
+// unconditionally via `allprojects { configurations.all { ... } } `.
+// Excluding configurations named "detekt" keeps detekt on the Kotlin
+// version it actually ships against while still pinning everything
+// else the app itself compiles/runs with.
 allprojects {
     configurations.all {
+        // Any configuration detekt's Gradle plugin owns (its resolved
+        // name varies by plugin version/module — e.g. "detekt",
+        // "detektPlugins" — so match by substring rather than hardcode
+        // one exact name) keeps its own declared Kotlin version.
+        if (name.contains("detekt", ignoreCase = true)) return@all
         resolutionStrategy.eachDependency {
             if (requested.group == "org.jetbrains.kotlin") {
                 useVersion(libs.versions.kotlin.get())
                 because(
-                    "Force every org.jetbrains.kotlin:* artifact — including the compiler daemon's " +
-                        "client/daemon jars — onto the single Kotlin version this project builds with, so the " +
-                        "daemon handshake never mixes two point releases (see comment above).",
+                    "Force org.jetbrains.kotlin:* artifacts in the app's own build/runtime " +
+                        "classpaths onto a single resolved Kotlin version, avoiding mixed-version " +
+                        "classpath skew across modules. Excludes any detekt-owned configuration " +
+                        "(see comment above) so detekt keeps using the Kotlin version it was built against.",
                 )
             }
         }

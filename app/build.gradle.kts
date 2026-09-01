@@ -14,6 +14,16 @@ plugins {
     alias(libs.plugins.owasp.dependencycheck)
     alias(libs.plugins.license.report)
     alias(libs.plugins.dexcount)
+    // Also applied at root (build.gradle.kts) — the dependency-analysis
+    // plugin only auto-registers a `projectHealth` task on a subproject
+    // if the plugin is applied to that subproject directly (applying it
+    // at root alone only gets you the root-level `buildHealth`
+    // aggregate task). CI calls `./gradlew :app:projectHealth`
+    // (build.yml step "27e. Dependency Analysis"), which needs this
+    // line to exist — without it that step fails with "Cannot locate
+    // tasks that match ':app:projectHealth' as task 'projectHealth'
+    // not found in project ':app'."
+    alias(libs.plugins.dependency.analysis)
 }
 
 // ── local.properties loader ──

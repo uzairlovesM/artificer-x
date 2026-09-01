@@ -18,6 +18,7 @@ import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.unit.sp
 import com.waheed.artificerx.R
 import androidx.compose.ui.text.googlefonts.Font as GoogleFontFactory
+import androidx.compose.ui.text.font.Font as PlatformFont
 
 // NOTE: GoogleFont / the Google-Fonts-aware Font(...) overload and its
 // provider type live in androidx.compose.ui.text.googlefonts (a separate
@@ -44,10 +45,16 @@ import androidx.compose.ui.text.googlefonts.Font as GoogleFontFactory
  *    settings, and anywhere dense text needs to stay readable on a
  *    dark canvas-heavy screen (Section 208 Accessibility contrast).
  *
- * A local system-font fallback chain is attached to every FontFamily so
- * typography never breaks if the device has no Google Play Services
- * (rare, but real on some OEM/region builds) or the font fetch is
- * offline on first cold start.
+ * No local font files are bundled in res/font — every weight here is a
+ * downloadable Google Font (FontLoadingStrategy.Async). If the Google
+ * Play Services font provider is unavailable (rare, but real on some
+ * OEM/region builds) or the fetch fails/times out on first cold start,
+ * Compose renders the text with the platform's default typeface rather
+ * than crashing — but there is no branded fallback typeface in that
+ * case. If a hard guarantee of the Sora/Inter look offline is ever
+ * needed, add a bundled `Font(resId = R.font.sora_regular, ...)` etc.
+ * as an extra chain entry per weight (see "Work with fonts" — Compose
+ * tries each Font in a FontFamily's list in order until one loads).
  */
 
 private val googleFontProvider =
@@ -60,25 +67,43 @@ private val googleFontProvider =
 private val soraFontName = GoogleFont("Sora")
 private val interFontName = GoogleFont("Inter")
 
-val SoraFontFamily =
+// Each Font is built through an explicitly-typed helper (returns
+// PlatformFont — androidx.compose.ui.text.font.Font, the actual return
+// type of both the googlefonts and platform Font(...) factories, since
+// GoogleFontFactory's result is just a Font instance backed by a
+// downloadable-font AndroidFont under the hood) instead of being
+// constructed inline inside the FontFamily(...) vararg call. This
+// sidesteps a K2 overload-resolution failure where the compiler bound
+// these calls to FontFamily's own internal
+// `constructor(canLoadSynchronously: Boolean)` instead of the intended
+// top-level `FontFamily(vararg fonts: Font)` factory function — the
+// exact "Too many arguments for constructor(canLoadSynchronously:
+// Boolean)" error seen in CI. Giving the compiler an unambiguous,
+// pre-typed `Font` value at each call site (rather than an inline call
+// it has to resolve itself in vararg position) forces it onto the
+// correct factory every time.
+private fun googleFont(
+    font: GoogleFont,
+    weight: FontWeight,
+): PlatformFont = GoogleFontFactory(googleFont = font, fontProvider = googleFontProvider, weight = weight)
+
+val SoraFontFamily: FontFamily =
     FontFamily(
-        GoogleFontFactory(googleFont = soraFontName, fontProvider = googleFontProvider, weight = FontWeight.Light),
-        GoogleFontFactory(googleFont = soraFontName, fontProvider = googleFontProvider, weight = FontWeight.Normal),
-        GoogleFontFactory(googleFont = soraFontName, fontProvider = googleFontProvider, weight = FontWeight.Medium),
-        GoogleFontFactory(googleFont = soraFontName, fontProvider = googleFontProvider, weight = FontWeight.SemiBold),
-        GoogleFontFactory(googleFont = soraFontName, fontProvider = googleFontProvider, weight = FontWeight.Bold),
-        GoogleFontFactory(googleFont = soraFontName, fontProvider = googleFontProvider, weight = FontWeight.ExtraBold),
-        FontFamily.SansSerif,
+        googleFont(soraFontName, FontWeight.Light),
+        googleFont(soraFontName, FontWeight.Normal),
+        googleFont(soraFontName, FontWeight.Medium),
+        googleFont(soraFontName, FontWeight.SemiBold),
+        googleFont(soraFontName, FontWeight.Bold),
+        googleFont(soraFontName, FontWeight.ExtraBold),
     )
 
-val InterFontFamily =
+val InterFontFamily: FontFamily =
     FontFamily(
-        GoogleFontFactory(googleFont = interFontName, fontProvider = googleFontProvider, weight = FontWeight.Light),
-        GoogleFontFactory(googleFont = interFontName, fontProvider = googleFontProvider, weight = FontWeight.Normal),
-        GoogleFontFactory(googleFont = interFontName, fontProvider = googleFontProvider, weight = FontWeight.Medium),
-        GoogleFontFactory(googleFont = interFontName, fontProvider = googleFontProvider, weight = FontWeight.SemiBold),
-        GoogleFontFactory(googleFont = interFontName, fontProvider = googleFontProvider, weight = FontWeight.Bold),
-        FontFamily.SansSerif,
+        googleFont(interFontName, FontWeight.Light),
+        googleFont(interFontName, FontWeight.Normal),
+        googleFont(interFontName, FontWeight.Medium),
+        googleFont(interFontName, FontWeight.SemiBold),
+        googleFont(interFontName, FontWeight.Bold),
     )
 
 /** Monospace family for the Live Agent Log (Section 92) and tool-call
