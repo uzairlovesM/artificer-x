@@ -28,6 +28,25 @@ class LayerBitmapStore
         private val bitmaps = ConcurrentHashMap<String, Bitmap>()
         private val canvases = ConcurrentHashMap<String, Canvas>()
 
+        // ── Undo/Redo (Section 26 follow-up) ──
+        // A history entry is a full snapshot of every layer's bitmap at
+        // that point in time, taken right BEFORE a mutating operation is
+        // applied. This is deliberately simple (whole-bitmap copies, not
+        // per-stroke diffs) because ArtificerX's canvases are small
+        // (Section 171's budget-device target keeps them well under
+        // 2048x2048) and history depth is capped, so the memory cost is
+        // bounded and predictable — a diff-based undo system would save
+        // memory but adds real complexity (dirty-rect tracking across
+        // every one of CanvasCompositor's ~15 draw operations) for a
+        // problem this project doesn't actually have yet.
+        //
+        // Redo stack is cleared on every new push, matching the standard
+        // "new action after undo discards the redo branch" behavior every
+        // paint app uses (Procreate, Photoshop, etc.) — this is what
+        // artists actually expect, not a branching history tree.
+        private val undoStack = ArrayDeque<Map<String, Bitmap>>()
+        private val redoStack = ArrayDeque<Map<String, Bitmap>>()
+
         fun ensureLayer(
             layerId: String,
             widthPx: Int,
@@ -38,6 +57,93 @@ class LayerBitmapStore
                 canvases[layerId] = Canvas(bitmap)
                 bitmap
             }
+
+        /** Call BEFORE any pixel-mutating operation (drawPath, drawShape,
+         *  fillRegion, applyFilter, etc.) so that state can be restored by
+         *  [undo]. Snapshots every current layer bitmap — cheap relative
+         *  to the mutation itself since Bitmap.copy is a single native
+         *  memcpy, not a pixel-by-pixel loop. Pushing a new undo entry
+         *  always clears the redo stack (see class doc). */
+        fun pushUndoSnapshot() {
+            val snapshot = bitmaps.mapValues { (_, bmp) -> bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, true) }
+            undoStack.addLast(snapshot)
+            if (undoStack.size > MAX_HISTORY_DEPTH) {
+                undoStack.removeFirst().values.forEach { it.recycle() }
+            }
+            redoStack.forEach { entry -> entry.values.forEach { it.recycle() } }
+            redoStack.clear()
+        }
+
+        /** Restores the most recent undo snapshot, pushing the
+         *  pre-restore state onto the redo stack first. Returns false if
+         *  there's nothing to undo. Bitmaps are restored in place (drawn
+         *  into the existing Bitmap objects) rather than swapping bitmap
+         *  references, so any other holder of the old Bitmap instance
+         *  (e.g. a Compose ImageBitmap wrapper mid-recomposition) still
+         *  sees a coherent object identity. */
+        fun undo(): Boolean {
+            val previous = undoStack.removeLastOrNull() ?: return false
+            val currentSnapshot = bitmaps.mapValues { (_, bmp) -> bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, true) }
+            redoStack.addLast(currentSnapshot)
+            restoreSnapshot(previous)
+            return true
+        }
+
+        /** Re-applies a state that was undone. Returns false if there's
+         *  nothing to redo. */
+        fun redo(): Boolean {
+            val next = redoStack.removeLastOrNull() ?: return false
+            val currentSnapshot = bitmaps.mapValues { (_, bmp) -> bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, true) }
+            undoStack.addLast(currentSnapshot)
+            restoreSnapshot(next)
+            return true
+        }
+
+        private fun restoreSnapshot(snapshot: Map<String, Bitmap>) {
+            // Remove any layer that exists now but didn't exist in the
+            // snapshot (e.g. a layer added after this history point).
+            val layersToRemove = bitmaps.keys - snapshot.keys
+            layersToRemove.forEach { layerId ->
+                bitmaps.remove(layerId)?.recycle()
+                canvases.remove(layerId)
+            }
+
+            snapshot.forEach { (layerId, snapshotBitmap) ->
+                val target = bitmaps[layerId]
+                if (target != null && target.width == snapshotBitmap.width && target.height == snapshotBitmap.height) {
+                    val canvas = canvases[layerId] ?: Canvas(target).also { canvases[layerId] = it }
+                    canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+                    canvas.drawBitmap(snapshotBitmap, 0f, 0f, null)
+                } else {
+                    // Layer didn't exist (was deleted) or changed size
+                    // (e.g. crop_canvas) since this snapshot — recreate it
+                    // fresh from the snapshot bitmap directly.
+                    target?.recycle()
+                    val restored = snapshotBitmap.copy(snapshotBitmap.config ?: Bitmap.Config.ARGB_8888, true)
+                    bitmaps[layerId] = restored
+                    canvases[layerId] = Canvas(restored)
+                }
+            }
+        }
+
+        fun canUndo(): Boolean = undoStack.isNotEmpty()
+
+        fun canRedo(): Boolean = redoStack.isNotEmpty()
+
+        fun undoStackDepth(): Int = undoStack.size
+
+        fun redoStackDepth(): Int = redoStack.size
+
+        /** Clears all history — must be called whenever a project is
+         *  loaded or switched, since undoing "past" a freshly loaded
+         *  project's starting point makes no sense and would otherwise
+         *  silently restore bitmaps from a completely different project. */
+        fun clearHistory() {
+            undoStack.forEach { entry -> entry.values.forEach { it.recycle() } }
+            redoStack.forEach { entry -> entry.values.forEach { it.recycle() } }
+            undoStack.clear()
+            redoStack.clear()
+        }
 
         fun getBitmap(layerId: String): Bitmap? = bitmaps[layerId]
 
@@ -57,6 +163,7 @@ class LayerBitmapStore
             bitmaps.values.forEach { it.recycle() }
             bitmaps.clear()
             canvases.clear()
+            clearHistory()
         }
 
         /** Replaces a layer's bitmap with a cropped sub-region of itself.
@@ -135,4 +242,12 @@ class LayerBitmapStore
         /** Total memory footprint estimate — used by Section 137's
          *  thermal/memory-awareness gating before allowing new layers. */
         fun estimateTotalBytes(): Long = bitmaps.values.sumOf { it.byteCount.toLong() }
+
+        companion object {
+            // Capped so a very long freehand session can't grow undo
+            // memory unboundedly — 25 steps back matches what most
+            // mobile paint apps offer by default (Procreate: unlimited
+            // but disk-backed; budget mobile apps: 20-30 in-memory).
+            private const val MAX_HISTORY_DEPTH = 25
+        }
     }

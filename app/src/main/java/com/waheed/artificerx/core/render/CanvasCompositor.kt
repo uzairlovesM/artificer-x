@@ -713,12 +713,24 @@ class CanvasCompositor
             return true
         }
 
-        /**
-         * Composites all visible layers, bottom to top, respecting opacity
-         * and blend mode, into a single flattened Bitmap — this is what
-         * gets shown on screen and what gets base64-encoded for the
-         * agent's vision-feedback snapshot (Section 156).
-         */
+        /** Composites all visible layers, bottom to top, respecting opacity
+         *  and blend mode, into a single flattened Bitmap — this is what
+         *  gets shown on screen and what gets base64-encoded for the
+         *  agent's vision-feedback snapshot (Section 156).
+         *
+         *  Blend-mode note: Android's android.graphics.PorterDuff.Mode is
+         *  a much smaller set than Photoshop-style layer blend modes —
+         *  it has no COLOR_DODGE, COLOR_BURN, or SUBTRACT equivalent.
+         *  Previously those three (plus OVERLAY, which DOES exist in
+         *  PorterDuff.Mode but wasn't wired) silently fell through to
+         *  `null` in blendModeToPorterDuff and rendered as plain Normal —
+         *  a real, user-visible bug: selecting "Color Burn" from the
+         *  layer panel produced no visible difference at all, which
+         *  reads as "the app is broken" even though most of the blend
+         *  system works. OVERLAY is now wired to its real PorterDuff
+         *  equivalent; COLOR_DODGE/COLOR_BURN/SUBTRACT are computed with
+         *  manual per-pixel math in blendManually since Android has no
+         *  native Xfermode for them. */
         fun compositeVisibleLayers(
             layers: List<CanvasLayer>,
             widthPx: Int,
@@ -732,21 +744,107 @@ class CanvasCompositor
                 if (!layer.isVisible) return@forEach
                 val layerBitmap = bitmapStore.getBitmap(layer.id) ?: return@forEach
 
-                val paint =
-                    Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        alpha = (layer.opacity.coerceIn(0f, 1f) * 255).toInt()
-                        xfermode = blendModeToPorterDuff(layer.blendMode)
-                    }
-                canvas.drawBitmap(layerBitmap, 0f, 0f, paint)
+                if (requiresManualBlend(layer.blendMode)) {
+                    blendManually(output, layerBitmap, layer.blendMode, layer.opacity.coerceIn(0f, 1f))
+                } else {
+                    val paint =
+                        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            alpha = (layer.opacity.coerceIn(0f, 1f) * 255).toInt()
+                            xfermode = blendModeToPorterDuff(layer.blendMode)
+                        }
+                    canvas.drawBitmap(layerBitmap, 0f, 0f, paint)
+                }
             }
 
             return output
+        }
+
+        private fun requiresManualBlend(mode: LayerBlendMode): Boolean =
+            mode == LayerBlendMode.COLOR_DODGE || mode == LayerBlendMode.COLOR_BURN || mode == LayerBlendMode.SUBTRACT
+
+        /** Per-pixel blend for the three modes Android's PorterDuff has no
+         *  native equivalent for. Reads both bitmaps' pixel arrays,
+         *  applies the standard Photoshop-style blend formula for the
+         *  given mode at the layer's opacity, and writes the result
+         *  directly into [base]'s pixel array in place.
+         *
+         *  Formulas (per channel, base/blend in 0..1 range):
+         *   - Color Dodge: base / (1 - blend), clamped to 1 when blend=1
+         *   - Color Burn:  1 - (1 - base) / blend, clamped to 0 when blend=0
+         *   - Subtract:    base - blend, clamped to 0
+         *  These match the standard digital-compositing definitions used
+         *  by Photoshop/GIMP/Krita, so a layer authored with this blend
+         *  mode composites the same way ArtificerX users would expect
+         *  from any other paint tool. */
+        private fun blendManually(
+            base: Bitmap,
+            overlay: Bitmap,
+            mode: LayerBlendMode,
+            opacity: Float,
+        ) {
+            val width = base.width
+            val height = base.height
+            val basePixels = IntArray(width * height)
+            val overlayPixels = IntArray(width * height)
+            base.getPixels(basePixels, 0, width, 0, 0, width, height)
+            overlay.getPixels(overlayPixels, 0, width, 0, 0, width, height)
+
+            fun blendChannel(
+                baseValue: Int,
+                overlayValue: Int,
+            ): Int {
+                val b = baseValue / 255f
+                val o = overlayValue / 255f
+                val blended =
+                    when (mode) {
+                        LayerBlendMode.COLOR_DODGE -> if (o >= 1f) 1f else (b / (1f - o)).coerceAtMost(1f)
+                        LayerBlendMode.COLOR_BURN -> if (o <= 0f) 0f else (1f - (1f - b) / o).coerceAtLeast(0f)
+                        LayerBlendMode.SUBTRACT -> (b - o).coerceAtLeast(0f)
+                        else -> b
+                    }
+                return (blended.coerceIn(0f, 1f) * 255).toInt()
+            }
+
+            for (i in basePixels.indices) {
+                val basePixel = basePixels[i]
+                val overlayPixel = overlayPixels[i]
+                val overlayAlpha = ((overlayPixel shr 24) and 0xFF) / 255f * opacity
+                if (overlayAlpha <= 0f) continue
+
+                val baseA = (basePixel shr 24) and 0xFF
+                val baseR = (basePixel shr 16) and 0xFF
+                val baseG = (basePixel shr 8) and 0xFF
+                val baseB = basePixel and 0xFF
+
+                val overlayR = (overlayPixel shr 16) and 0xFF
+                val overlayG = (overlayPixel shr 8) and 0xFF
+                val overlayB = overlayPixel and 0xFF
+
+                val blendedR = blendChannel(baseR, overlayR)
+                val blendedG = blendChannel(baseG, overlayG)
+                val blendedB = blendChannel(baseB, overlayB)
+
+                // Standard alpha-weighted mix between the base pixel and
+                // the fully-blended result, using the overlay's own alpha
+                // (times layer opacity) as the mix factor — so a
+                // semi-transparent stroke on the blended layer partially
+                // blends rather than being all-or-nothing.
+                val outR = (baseR * (1 - overlayAlpha) + blendedR * overlayAlpha).toInt().coerceIn(0, 255)
+                val outG = (baseG * (1 - overlayAlpha) + blendedG * overlayAlpha).toInt().coerceIn(0, 255)
+                val outB = (baseB * (1 - overlayAlpha) + blendedB * overlayAlpha).toInt().coerceIn(0, 255)
+                val outA = max(baseA, (overlayAlpha * 255).toInt())
+
+                basePixels[i] = (outA shl 24) or (outR shl 16) or (outG shl 8) or outB
+            }
+
+            base.setPixels(basePixels, 0, width, 0, 0, width, height)
         }
 
         private fun blendModeToPorterDuff(mode: LayerBlendMode): PorterDuffXfermode? =
             when (mode) {
                 LayerBlendMode.MULTIPLY -> PorterDuffXfermode(PorterDuff.Mode.MULTIPLY)
                 LayerBlendMode.SCREEN -> PorterDuffXfermode(PorterDuff.Mode.SCREEN)
+                LayerBlendMode.OVERLAY -> PorterDuffXfermode(PorterDuff.Mode.OVERLAY)
                 LayerBlendMode.DARKEN -> PorterDuffXfermode(PorterDuff.Mode.DARKEN)
                 LayerBlendMode.LIGHTEN -> PorterDuffXfermode(PorterDuff.Mode.LIGHTEN)
                 LayerBlendMode.ADD -> PorterDuffXfermode(PorterDuff.Mode.ADD)

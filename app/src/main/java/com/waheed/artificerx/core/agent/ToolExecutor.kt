@@ -77,11 +77,40 @@ class ToolExecutor
                     )
             }
 
+        /** Tool calls that mutate canvas pixels — every one of these must
+         *  be preceded by an undo snapshot so a human can Ctrl+Z an
+         *  agent-driven stroke exactly like a manual one. Layer-metadata-
+         *  only calls (SetActiveLayer, SetLayerProperty, InspectCanvas,
+         *  PickColor, etc.) are deliberately excluded — undo is scoped to
+         *  pixels, matching StudioViewModel.undo()'s own doc comment. */
+        private fun mutatesPixels(parsedCall: ParsedToolCall): Boolean =
+            when (parsedCall) {
+                is ParsedToolCall.DrawPath,
+                is ParsedToolCall.DrawShape,
+                is ParsedToolCall.ApplyGradient,
+                is ParsedToolCall.FillRegion,
+                is ParsedToolCall.DuplicateLayer,
+                is ParsedToolCall.FlipLayer,
+                is ParsedToolCall.CropCanvas,
+                is ParsedToolCall.ApplyFilter,
+                is ParsedToolCall.AddText,
+                is ParsedToolCall.CreateMask,
+                is ParsedToolCall.ApplyPattern,
+                is ParsedToolCall.DrawCurve,
+                is ParsedToolCall.ImportImageLayer,
+                is ParsedToolCall.DeleteLayer,
+                -> true
+                else -> false
+            }
+
         fun execute(
             parsedCall: ParsedToolCall,
             viewModel: StudioViewModel,
         ): ToolExecutionResult {
             val currentState = viewModel.state.value
+            if (mutatesPixels(parsedCall)) {
+                bitmapStore.pushUndoSnapshot()
+            }
 
             return when (parsedCall) {
                 is ParsedToolCall.CreateLayer -> {

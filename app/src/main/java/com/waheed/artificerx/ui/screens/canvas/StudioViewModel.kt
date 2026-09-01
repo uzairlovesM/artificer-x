@@ -118,6 +118,17 @@ class StudioViewModel
                             heightPx = current.canvasHeightPx,
                         )
                     _compositedBitmap.value = flattened
+                    // Keep the undo/redo counters in the exposed state in
+                    // sync even when the mutation that triggered this
+                    // recomposite came from the agent's ToolExecutor path
+                    // rather than one of this ViewModel's own manual-draw
+                    // methods (ToolExecutor calls bitmapStore.pushUndoSnapshot()
+                    // itself before each tool's pixel mutation).
+                    if (current.undoStackSize != bitmapStore.undoStackDepth() || current.redoStackSize != bitmapStore.redoStackDepth()) {
+                        _state.update {
+                            it.copy(undoStackSize = bitmapStore.undoStackDepth(), redoStackSize = bitmapStore.redoStackDepth())
+                        }
+                    }
 
                     // Debounced save-on-change: any tool call or manual edit that
                     // triggers a recomposite also schedules a save shortly after,
@@ -300,6 +311,7 @@ class StudioViewModel
             if (activeLayer?.isLocked == true) return
 
             bitmapStore.ensureLayer(activeLayerId, current.canvasWidthPx, current.canvasHeightPx)
+            bitmapStore.pushUndoSnapshot()
 
             val isEraser = current.toolState.activeTool == DrawToolType.ERASER
             val colorHex = if (isEraser) "#FFFFFF" else current.toolState.brushColorHex
@@ -330,6 +342,7 @@ class StudioViewModel
             if (activeLayer?.isLocked == true) return
 
             bitmapStore.ensureLayer(activeLayerId, current.canvasWidthPx, current.canvasHeightPx)
+            bitmapStore.pushUndoSnapshot()
 
             val shapeType =
                 when (current.toolState.activeTool) {
@@ -363,7 +376,29 @@ class StudioViewModel
             if (activeLayer?.isLocked == true) return
 
             bitmapStore.ensureLayer(activeLayerId, current.canvasWidthPx, current.canvasHeightPx)
+            bitmapStore.pushUndoSnapshot()
             compositor.fillRegion(activeLayerId, x, y, current.toolState.brushColorHex, tolerance = 32f)
+            recomposite()
+        }
+
+        /** Section undo/redo: reverts the most recent pixel-mutating
+         *  operation (manual stroke, shape, fill, or any agent tool call
+         *  that went through CanvasCompositor). Layer *metadata* changes
+         *  (visibility/lock/opacity/rename) are intentionally NOT part of
+         *  this undo history — only pixel operations are, matching how
+         *  Procreate/Photoshop-class apps scope undo (toggling a layer's
+         *  visibility is not something artists expect an undo press to
+         *  revert). Updates undoStackSize/redoStackSize on state so the
+         *  UI can grey out the buttons when there's nothing to undo/redo. */
+        fun undo() {
+            if (!bitmapStore.undo()) return
+            _state.update { it.copy(undoStackSize = bitmapStore.undoStackDepth(), redoStackSize = bitmapStore.redoStackDepth()) }
+            recomposite()
+        }
+
+        fun redo() {
+            if (!bitmapStore.redo()) return
+            _state.update { it.copy(undoStackSize = bitmapStore.undoStackDepth(), redoStackSize = bitmapStore.redoStackDepth()) }
             recomposite()
         }
 
@@ -496,7 +531,13 @@ class StudioViewModel
         fun loadProject(projectId: String) {
             viewModelScope.launch {
                 projectRepository.loadProject(projectId)?.let { loaded ->
-                    _state.value = loaded
+                    // A freshly loaded project's undo history from a
+                    // previous session (if any) refers to bitmaps that no
+                    // longer correspond to this project's layers — undoing
+                    // "past" this point would restore stale, unrelated
+                    // pixel data, so history must reset at load boundaries.
+                    bitmapStore.clearHistory()
+                    _state.value = loaded.copy(undoStackSize = 0, redoStackSize = 0)
                 }
             }
         }

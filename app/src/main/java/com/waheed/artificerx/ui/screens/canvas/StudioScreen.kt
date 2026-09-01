@@ -27,8 +27,10 @@ import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.Gradient
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Rectangle
+import androidx.compose.material.icons.filled.Redo
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.ViewInAr
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -100,6 +102,10 @@ fun StudioScreen(
         StudioTopBar(
             projectName = state.projectName,
             agentActivity = state.agentActivity,
+            canUndo = state.undoStackSize > 0,
+            canRedo = state.redoStackSize > 0,
+            onUndo = viewModel::undo,
+            onRedo = viewModel::redo,
             onToggleLayerPanel = { isLayerPanelOpen = !isLayerPanelOpen },
             onOpenSettings = onOpenSettings,
             onOpenProjectGallery = onOpenProjectGallery,
@@ -157,6 +163,10 @@ fun StudioScreen(
 private fun StudioTopBar(
     projectName: String,
     agentActivity: AgentActivityState,
+    canUndo: Boolean,
+    canRedo: Boolean,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
     onToggleLayerPanel: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenProjectGallery: () -> Unit,
@@ -185,6 +195,20 @@ private fun StudioTopBar(
             AgentActivityIndicator(agentActivity)
         }
 
+        IconButton(onClick = onUndo, enabled = canUndo) {
+            Icon(
+                Icons.Filled.Undo,
+                contentDescription = "Undo",
+                tint = if (canUndo) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+            )
+        }
+        IconButton(onClick = onRedo, enabled = canRedo) {
+            Icon(
+                Icons.Filled.Redo,
+                contentDescription = "Redo",
+                tint = if (canRedo) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+            )
+        }
         IconButton(onClick = onOpenExport) {
             Icon(Icons.Filled.Download, contentDescription = "Export", tint = GoldPrimary)
         }
