@@ -30,33 +30,367 @@ class CanvasCompositor
     constructor(
         private val bitmapStore: LayerBitmapStore,
     ) {
+        /** v0.4.30 real brush engine: [brushType] genuinely changes how the
+         *  stroke renders (not just a label) — see the private per-type
+         *  functions below. [pointWeights], when supplied, is a parallel
+         *  per-point 0..1 multiplier (from simulated touch pressure or a
+         *  future real stylus reading) applied on top of [strokeWidthPx];
+         *  null means "flat width," preserving old behavior for every
+         *  existing caller (including the AI's draw_path tool call, which
+         *  doesn't send weights) so nothing else breaks by adding this. */
         fun drawPath(
             layerId: String,
             points: List<Float>,
             colorHex: String?,
             strokeWidthPx: Float?,
             opacity: Float?,
+            brushType: com.waheed.artificerx.domain.model.BrushType =
+                com.waheed.artificerx.domain.model.BrushType.INK_PEN,
+            pointWeights: List<Float>? = null,
         ): Boolean {
             val canvas = bitmapStore.getCanvas(layerId) ?: return false
-            val path = Path()
-            path.moveTo(points[0], points[1])
-            var i = 2
-            while (i + 1 < points.size) {
-                path.lineTo(points[i], points[i + 1])
-                i += 2
-            }
+            if (points.size < 4) return false
+            val color = safeParseColor(colorHex, default = Color.BLACK)
+            val baseWidth = strokeWidthPx ?: 8f
+            val baseAlpha = ((opacity ?: 1f).coerceIn(0f, 1f) * 255).toInt()
 
+            when (brushType) {
+                com.waheed.artificerx.domain.model.BrushType.INK_PEN ->
+                    drawSmoothStroke(canvas, points, color, baseWidth, baseAlpha, pointWeights)
+                com.waheed.artificerx.domain.model.BrushType.PENCIL ->
+                    drawPencilStroke(canvas, points, color, baseWidth, baseAlpha, pointWeights)
+                com.waheed.artificerx.domain.model.BrushType.MARKER ->
+                    drawMarkerStroke(canvas, points, color, baseWidth, baseAlpha)
+                com.waheed.artificerx.domain.model.BrushType.CALLIGRAPHY ->
+                    drawCalligraphyStroke(canvas, points, color, baseWidth, baseAlpha)
+                com.waheed.artificerx.domain.model.BrushType.AIRBRUSH ->
+                    drawSoftDabStroke(canvas, points, color, baseWidth, baseAlpha, blurRadius = baseWidth * 0.5f, dabAlpha = 26)
+                com.waheed.artificerx.domain.model.BrushType.WATERCOLOR ->
+                    drawSoftDabStroke(canvas, points, color, baseWidth * 1.6f, baseAlpha, blurRadius = baseWidth * 0.9f, dabAlpha = 14)
+                com.waheed.artificerx.domain.model.BrushType.CHARCOAL ->
+                    drawCharcoalStroke(canvas, points, color, baseWidth, baseAlpha)
+                com.waheed.artificerx.domain.model.BrushType.ERASER_SOFT ->
+                    drawSoftDabStroke(canvas, points, Color.TRANSPARENT, baseWidth, 255, blurRadius = baseWidth * 0.6f, dabAlpha = 40, isClear = true)
+            }
+            return true
+        }
+
+        /** True transparency erase — Paint.Style.STROKE with an XOR/CLEAR
+         *  Xfermode along the path, so it actually punches a hole down to
+         *  alpha=0 regardless of what color is underneath. v0.4.30 fix:
+         *  the eraser previously worked by drawing opaque white over the
+         *  stroke (see old StudioViewModel.drawManualStroke), which looked
+         *  right only by accident on a plain white background and quietly
+         *  corrupted transparency for layer blending / PNG export
+         *  everywhere else — hard eraser and soft eraser (ERASER_SOFT
+         *  brush type above) now both genuinely clear pixels. */
+        fun erasePath(
+            layerId: String,
+            points: List<Float>,
+            strokeWidthPx: Float?,
+        ): Boolean {
+            val canvas = bitmapStore.getCanvas(layerId) ?: return false
+            if (points.size < 4) return false
+            val path = Path().apply {
+                moveTo(points[0], points[1])
+                var i = 2
+                while (i + 1 < points.size) {
+                    lineTo(points[i], points[i + 1])
+                    i += 2
+                }
+            }
             val paint =
                 Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     style = Paint.Style.STROKE
                     strokeCap = Paint.Cap.ROUND
                     strokeJoin = Paint.Join.ROUND
-                    color = safeParseColor(colorHex, default = Color.BLACK)
-                    alpha = ((opacity ?: 1f).coerceIn(0f, 1f) * 255).toInt()
                     strokeWidth = strokeWidthPx ?: 8f
+                    xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
                 }
-
             canvas.drawPath(path, paint)
+            return true
+        }
+
+        private fun buildPath(points: List<Float>): Path =
+            Path().apply {
+                moveTo(points[0], points[1])
+                var i = 2
+                while (i + 1 < points.size) {
+                    lineTo(points[i], points[i + 1])
+                    i += 2
+                }
+            }
+
+        /** INK_PEN: the original clean round-cap stroke, now width-
+         *  modulated per segment when [pointWeights] is present so a slow
+         *  "heavy" part of a finger stroke is visibly thicker than a fast
+         *  "light" flick — the touch-simulated-pressure feel. */
+        private fun drawSmoothStroke(
+            canvas: Canvas,
+            points: List<Float>,
+            color: Int,
+            baseWidth: Float,
+            baseAlpha: Int,
+            pointWeights: List<Float>?,
+        ) {
+            // pointWeights carries one entry PER SEGMENT (points.size/2 - 1
+            // segments for a polyline of points.size/2 points), not one
+            // per point — comparing against the segment count here, not
+            // the point count, so the weighted per-segment path below
+            // actually gets used instead of always falling through to the
+            // flat-width branch.
+            val segmentCount = (points.size / 2 - 1).coerceAtLeast(0)
+            if (pointWeights == null || pointWeights.size < segmentCount) {
+                val paint =
+                    Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        style = Paint.Style.STROKE
+                        strokeCap = Paint.Cap.ROUND
+                        strokeJoin = Paint.Join.ROUND
+                        this.color = color
+                        alpha = baseAlpha
+                        strokeWidth = baseWidth
+                    }
+                canvas.drawPath(buildPath(points), paint)
+                return
+            }
+            // Per-segment width: draw short round-capped segments so the
+            // stroke can taper smoothly along its length instead of being
+            // one flat-width Path.
+            val paint =
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.ROUND
+                    strokeJoin = Paint.Join.ROUND
+                    this.color = color
+                    alpha = baseAlpha
+                }
+            var i = 0
+            var wi = 0
+            while (i + 3 < points.size) {
+                val w = (pointWeights.getOrNull(wi) ?: 1f).coerceIn(0.15f, 1.6f)
+                paint.strokeWidth = baseWidth * w
+                canvas.drawLine(points[i], points[i + 1], points[i + 2], points[i + 3], paint)
+                i += 2
+                wi += 1
+            }
+        }
+
+        /** PENCIL: several thin, low-alpha overlapping passes with a tiny
+         *  random per-pass offset — graphite doesn't lay down one perfectly
+         *  flat line, it's a scatter of grains, and this is the cheapest
+         *  real approximation of that on a Canvas API with no texture
+         *  brushes. Deterministic-enough seed (path hash) so the same
+         *  stroke redrawn (e.g. on undo/redo restore) looks the same. */
+        private fun drawPencilStroke(
+            canvas: Canvas,
+            points: List<Float>,
+            color: Int,
+            baseWidth: Float,
+            baseAlpha: Int,
+            pointWeights: List<Float>?,
+        ) {
+            val random = java.util.Random(points.hashCode().toLong())
+            val passes = 3
+            val paint =
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.ROUND
+                    strokeJoin = Paint.Join.ROUND
+                    this.color = color
+                    strokeWidth = (baseWidth * 0.55f).coerceAtLeast(1f)
+                }
+            repeat(passes) { pass ->
+                paint.alpha = (baseAlpha / (passes + 1)).coerceIn(10, 255)
+                val jitter = baseWidth * 0.12f
+                val jittered =
+                    points.mapIndexed { idx, v ->
+                        val isX = idx % 2 == 0
+                        v + (random.nextFloat() - 0.5f) * jitter * (if (isX) 1f else 1f) + pass * 0f
+                    }
+                canvas.drawPath(buildPath(jittered), paint)
+            }
+        }
+
+        /** MARKER: flat/square cap, wide, semi-transparent so overlapping
+         *  passes visibly darken where they cross — exactly how a real
+         *  alcohol/felt marker behaves, unlike a fully-opaque single pass. */
+        private fun drawMarkerStroke(
+            canvas: Canvas,
+            points: List<Float>,
+            color: Int,
+            baseWidth: Float,
+            baseAlpha: Int,
+        ) {
+            val paint =
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.SQUARE
+                    strokeJoin = Paint.Join.BEVEL
+                    this.color = color
+                    alpha = (baseAlpha * 0.72f).toInt().coerceIn(0, 255)
+                    strokeWidth = baseWidth * 1.4f
+                }
+            canvas.drawPath(buildPath(points), paint)
+        }
+
+        /** CALLIGRAPHY: simulates a flat chisel nib held at a fixed 45°
+         *  angle — real calligraphy pens are thick when the stroke
+         *  direction is perpendicular to the nib angle and thin when
+         *  travelling parallel to it. Drawn as short per-segment lines
+         *  whose width is baseWidth * |cos(segmentAngle - penAngle)|. */
+        private fun drawCalligraphyStroke(
+            canvas: Canvas,
+            points: List<Float>,
+            color: Int,
+            baseWidth: Float,
+            baseAlpha: Int,
+        ) {
+            val penAngleRad = Math.toRadians(45.0)
+            val paint =
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.SQUARE
+                    this.color = color
+                    alpha = baseAlpha
+                }
+            var i = 0
+            while (i + 3 < points.size) {
+                val dx = points[i + 2] - points[i]
+                val dy = points[i + 3] - points[i + 1]
+                val segAngle = Math.atan2(dy.toDouble(), dx.toDouble())
+                val widthFactor = Math.abs(Math.cos(segAngle - penAngleRad)).coerceIn(0.18, 1.0).toFloat()
+                paint.strokeWidth = (baseWidth * (0.3f + widthFactor)).coerceAtLeast(1.5f)
+                canvas.drawLine(points[i], points[i + 1], points[i + 2], points[i + 3], paint)
+                i += 2
+            }
+        }
+
+        /** AIRBRUSH / WATERCOLOR / soft eraser share this: a chain of
+         *  soft-edged, low-alpha circular dabs (BlurMaskFilter) stamped
+         *  along the path and overlapped so density builds up naturally
+         *  the slower/more the user goes over the same spot — real
+         *  airbrush/wash behavior, not a hard stroke outline. [isClear]
+         *  routes the same dab logic through a CLEAR Xfermode for the
+         *  soft-eraser brush instead of laying down paint. */
+        private fun drawSoftDabStroke(
+            canvas: Canvas,
+            points: List<Float>,
+            color: Int,
+            baseWidth: Float,
+            baseAlpha: Int,
+            blurRadius: Float,
+            dabAlpha: Int,
+            isClear: Boolean = false,
+        ) {
+            val radius = (baseWidth / 2f).coerceAtLeast(2f)
+            val paint =
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.FILL
+                    this.color = color
+                    alpha = ((dabAlpha.toFloat() / 255f) * (baseAlpha.toFloat() / 255f) * 255f).toInt().coerceIn(1, 255)
+                    if (blurRadius > 0.5f) {
+                        maskFilter = android.graphics.BlurMaskFilter(blurRadius, android.graphics.BlurMaskFilter.Blur.NORMAL)
+                    }
+                    if (isClear) xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+                }
+            var i = 0
+            var prevX = points[0]
+            var prevY = points[1]
+            while (i + 1 < points.size) {
+                val x = points[i]
+                val y = points[i + 1]
+                val dist = Math.hypot((x - prevX).toDouble(), (y - prevY).toDouble()).toFloat()
+                val steps = (dist / (radius * 0.5f)).toInt().coerceAtLeast(1)
+                for (s in 0 until steps) {
+                    val t = s.toFloat() / steps
+                    canvas.drawCircle(prevX + (x - prevX) * t, prevY + (y - prevY) * t, radius, paint)
+                }
+                prevX = x
+                prevY = y
+                i += 2
+            }
+            canvas.drawCircle(points[points.size - 2], points[points.size - 1], radius, paint)
+        }
+
+        /** CHARCOAL: like pencil but coarser — fewer, thicker, more
+         *  randomly-offset passes with heavier alpha variance, giving the
+         *  broken/grainy edge real charcoal has versus pencil's finer
+         *  grain. */
+        private fun drawCharcoalStroke(
+            canvas: Canvas,
+            points: List<Float>,
+            color: Int,
+            baseWidth: Float,
+            baseAlpha: Int,
+        ) {
+            val random = java.util.Random(points.hashCode().toLong() xor 0x5EED)
+            val passes = 4
+            val paint =
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.STROKE
+                    strokeCap = Paint.Cap.ROUND
+                    strokeJoin = Paint.Join.ROUND
+                    this.color = color
+                }
+            repeat(passes) {
+                paint.strokeWidth = baseWidth * (0.6f + random.nextFloat() * 0.7f)
+                paint.alpha = (baseAlpha * (0.25f + random.nextFloat() * 0.35f)).toInt().coerceIn(8, 255)
+                val jitter = baseWidth * 0.25f
+                val jittered = points.map { v -> v + (random.nextFloat() - 0.5f) * jitter }
+                canvas.drawPath(buildPath(jittered), paint)
+            }
+        }
+
+        /** v0.4.30 selection tool: clears every pixel inside the given
+         *  rect on one layer to transparent (CLEAR Xfermode, same real-
+         *  erase approach as erasePath above) — the "delete selection"
+         *  action. */
+        fun clearSelectionRegion(
+            layerId: String,
+            left: Float,
+            top: Float,
+            right: Float,
+            bottom: Float,
+        ): Boolean {
+            val canvas = bitmapStore.getCanvas(layerId) ?: return false
+            val paint =
+                Paint().apply {
+                    xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+                }
+            canvas.drawRect(left, top, right, bottom, paint)
+            return true
+        }
+
+        /** v0.4.30 selection tool: moves the pixel content inside the
+         *  given rect by (dx, dy) on one layer — extracts the sub-bitmap,
+         *  clears the original area, redraws it at the offset position.
+         *  Content that would land outside the layer bounds after the
+         *  move is naturally clipped by Canvas, matching how Photoshop/
+         *  Procreate's move-selection behaves. */
+        fun moveSelectionRegion(
+            layerId: String,
+            left: Float,
+            top: Float,
+            right: Float,
+            bottom: Float,
+            dx: Float,
+            dy: Float,
+        ): Boolean {
+            val source = bitmapStore.getBitmap(layerId) ?: return false
+            val canvas = bitmapStore.getCanvas(layerId) ?: return false
+            val safeLeft = left.coerceIn(0f, source.width.toFloat())
+            val safeTop = top.coerceIn(0f, source.height.toFloat())
+            val safeRight = right.coerceIn(safeLeft, source.width.toFloat())
+            val safeBottom = bottom.coerceIn(safeTop, source.height.toFloat())
+            val width = (safeRight - safeLeft).toInt()
+            val height = (safeBottom - safeTop).toInt()
+            if (width <= 0 || height <= 0) return false
+
+            val extracted = Bitmap.createBitmap(source, safeLeft.toInt(), safeTop.toInt(), width, height)
+            val clearPaint = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR) }
+            canvas.drawRect(safeLeft, safeTop, safeRight, safeBottom, clearPaint)
+            canvas.drawBitmap(extracted, safeLeft + dx, safeTop + dy, null)
+            extracted.recycle()
             return true
         }
 
@@ -320,6 +654,22 @@ class CanvasCompositor
 
         fun clearLayer(layerId: String) {
             bitmapStore.clearLayer(layerId)
+        }
+
+        /** v0.4.30: solid full-canvas fill for one layer — set_canvas_
+         *  background's backing. Deliberately separate from fillRegion
+         *  (bucket/flood fill from a tap point, contiguous-color region
+         *  only) since a background fill needs to cover the WHOLE layer
+         *  unconditionally regardless of what's currently on it. */
+        fun fillWholeLayer(
+            layerId: String,
+            colorHex: String,
+            widthPx: Int,
+            heightPx: Int,
+        ): Boolean {
+            val canvas = bitmapStore.getCanvas(layerId) ?: return false
+            canvas.drawColor(safeParseColor(colorHex, default = Color.WHITE))
+            return true
         }
 
         /** Section pick_color tool: real pixel sampling on the flattened

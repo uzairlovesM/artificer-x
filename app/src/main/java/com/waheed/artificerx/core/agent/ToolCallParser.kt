@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.floatOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -50,6 +51,12 @@ object ToolCallParser {
                     colorHex = args["color_hex"]?.jsonPrimitive?.contentOrNull,
                     strokeWidthPx = args["stroke_width_px"]?.jsonPrimitive?.floatOrNull,
                     opacity = args["opacity"]?.jsonPrimitive?.floatOrNull,
+                    brushType =
+                        args["brush_type"]?.jsonPrimitive?.contentOrNull?.let { raw ->
+                            runCatching {
+                                com.waheed.artificerx.domain.model.BrushType.valueOf(raw.uppercase())
+                            }.getOrNull()
+                        },
                 )
             "draw_shape" ->
                 ParsedToolCall.DrawShape(
@@ -174,6 +181,50 @@ object ToolCallParser {
             "web_fetch" ->
                 ParsedToolCall.WebFetch(
                     url = args["url"]?.jsonPrimitive?.contentOrNull ?: "",
+                )
+            "web_search" ->
+                ParsedToolCall.WebSearch(
+                    query = args["query"]?.jsonPrimitive?.contentOrNull ?: "",
+                )
+            "resize_canvas" ->
+                ParsedToolCall.ResizeCanvas(
+                    widthPx = args["width_px"]?.jsonPrimitive?.intOrNull ?: 1024,
+                    heightPx = args["height_px"]?.jsonPrimitive?.intOrNull ?: 1024,
+                )
+            "set_canvas_background" ->
+                ParsedToolCall.SetCanvasBackground(
+                    colorHex = args["color_hex"]?.jsonPrimitive?.contentOrNull ?: "#FFFFFF",
+                )
+            "set_brush_defaults" ->
+                ParsedToolCall.SetBrushDefaults(
+                    brushType =
+                        args["brush_type"]?.jsonPrimitive?.contentOrNull?.let { raw ->
+                            runCatching {
+                                com.waheed.artificerx.domain.model.BrushType.valueOf(raw.uppercase())
+                            }.getOrNull()
+                        },
+                    sizePx = args["size_px"]?.jsonPrimitive?.floatOrNull,
+                    colorHex = args["color_hex"]?.jsonPrimitive?.contentOrNull,
+                    opacity = args["opacity"]?.jsonPrimitive?.floatOrNull,
+                    hardness = args["hardness"]?.jsonPrimitive?.floatOrNull,
+                )
+            "set_selection" ->
+                ParsedToolCall.SetSelection(
+                    left = args["left"]?.jsonPrimitive?.floatOrNull ?: 0f,
+                    top = args["top"]?.jsonPrimitive?.floatOrNull ?: 0f,
+                    right = args["right"]?.jsonPrimitive?.floatOrNull ?: 0f,
+                    bottom = args["bottom"]?.jsonPrimitive?.floatOrNull ?: 0f,
+                )
+            "clear_selection" -> ParsedToolCall.ClearSelection
+            "delete_selection_content" -> ParsedToolCall.DeleteSelectionContent
+            "transform_layer" ->
+                ParsedToolCall.TransformLayer(
+                    dx = args["dx"]?.jsonPrimitive?.floatOrNull ?: 0f,
+                    dy = args["dy"]?.jsonPrimitive?.floatOrNull ?: 0f,
+                    scaleFactor = args["scale_factor"]?.jsonPrimitive?.floatOrNull ?: 1f,
+                    rotationDegrees = args["rotation_degrees"]?.jsonPrimitive?.floatOrNull ?: 0f,
+                    pivotX = args["pivot_x"]?.jsonPrimitive?.floatOrNull,
+                    pivotY = args["pivot_y"]?.jsonPrimitive?.floatOrNull,
                 )
             "create_primitive" ->
                 ParsedToolCall.CreatePrimitive(

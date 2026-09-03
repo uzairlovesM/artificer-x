@@ -2,6 +2,7 @@ package com.waheed.artificerx.ui.screens.canvas
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.consumeAllChanges
@@ -49,6 +50,21 @@ fun Modifier.canvasTouchInput(
     onShapeComplete: (startX: Float, startY: Float, endX: Float, endY: Float) -> Unit,
     onFillTap: (x: Float, y: Float) -> Unit,
     onColorPickTap: (x: Float, y: Float) -> Unit,
+    // v0.4.30 selection tool: same in-progress/complete shape as
+    // SHAPE_RECT above (drag defines a bounding box), kept as separate
+    // callbacks rather than reusing onShapeInProgress/onShapeComplete
+    // so the caller can distinguish "draw a rectangle" from "select a
+    // region" without inspecting toolState itself.
+    onSelectionInProgress: (left: Float, top: Float, right: Float, bottom: Float) -> Unit = { _, _, _, _ -> },
+    onSelectionComplete: (left: Float, top: Float, right: Float, bottom: Float) -> Unit = { _, _, _, _ -> },
+    // v0.4.30 transform tool: fires once when the TRANSFORM tool becomes
+    // active (see doc below on why gesture-start granularity is one
+    // undo step per tool-activation rather than per individual drag —
+    // a deliberate simplicity tradeoff), then once per gesture-update
+    // frame with that frame's pan/zoom/rotation delta.
+    onTransformGestureStart: () -> Unit = {},
+    onTransformGesture: (dx: Float, dy: Float, scaleFactor: Float, rotationDegrees: Float, pivotX: Float, pivotY: Float) -> Unit =
+        { _, _, _, _, _, _ -> },
 ): Modifier =
     this.pointerInput(toolState.activeTool) {
         when (toolState.activeTool) {
@@ -106,6 +122,45 @@ fun Modifier.canvasTouchInput(
                     val down = awaitFirstDown(pass = PointerEventPass.Main)
                     down.consumeAllChanges()
                     onColorPickTap(down.position.x, down.position.y)
+                }
+            }
+
+            // v0.4.30 selection tool: identical drag-to-rect shape as
+            // SHAPE_RECT (down defines one corner, drag/release the
+            // opposite), routed to the selection callbacks instead of
+            // drawing a shape.
+            DrawToolType.SELECTION -> {
+                awaitEachGesture {
+                    val down = awaitFirstDown(pass = PointerEventPass.Main)
+                    down.consumeAllChanges()
+                    var lastPosition = down.position
+                    onSelectionInProgress(down.position.x, down.position.y, lastPosition.x, lastPosition.y)
+
+                    do {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull() ?: break
+                        lastPosition = change.position
+                        onSelectionInProgress(down.position.x, down.position.y, lastPosition.x, lastPosition.y)
+                        change.consumeAllChanges()
+                    } while (event.changes.any { it.pressed })
+
+                    onSelectionComplete(down.position.x, down.position.y, lastPosition.x, lastPosition.y)
+                }
+            }
+
+            // v0.4.30 transform tool: Compose's own multi-touch
+            // pan/zoom/rotate recognizer, which is considerably more
+            // robust than hand-rolling centroid/angle math here. Fires
+            // onTransformGestureStart once when this branch is entered
+            // (i.e. once per TRANSFORM-tool activation — the pointerInput
+            // key above is toolState.activeTool, so switching tools away
+            // and back re-enters this branch and starts a fresh undo
+            // step), then onTransformGesture continuously for as long as
+            // the tool stays selected.
+            DrawToolType.TRANSFORM -> {
+                onTransformGestureStart()
+                detectTransformGestures { centroid, pan, zoom, rotation ->
+                    onTransformGesture(pan.x, pan.y, zoom, rotation, centroid.x, centroid.y)
                 }
             }
 

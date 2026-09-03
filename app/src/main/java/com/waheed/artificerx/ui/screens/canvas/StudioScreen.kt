@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.Gradient
 import androidx.compose.material.icons.filled.Layers
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.filled.Rectangle
 import androidx.compose.material.icons.filled.Redo
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.Transform
 import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.ViewInAr
 import androidx.compose.material3.Icon
@@ -93,6 +95,7 @@ fun StudioScreen(
     onOpenProjectGallery: () -> Unit,
     onOpenExport: (String) -> Unit = {},
     onOpenSculptStudio: () -> Unit = {},
+    onOpenTimelapse: () -> Unit = {},
     viewModel: StudioViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -111,6 +114,7 @@ fun StudioScreen(
             onOpenProjectGallery = onOpenProjectGallery,
             onOpenExport = { onOpenExport(state.projectId) },
             onOpenSculptStudio = onOpenSculptStudio,
+            onOpenTimelapse = onOpenTimelapse,
         )
 
         Box(modifier = Modifier.weight(1f)) {
@@ -120,11 +124,43 @@ fun StudioScreen(
                 widthPx = state.canvasWidthPx,
                 heightPx = state.canvasHeightPx,
                 toolState = state.toolState,
+                selection = state.selection,
                 onStrokeComplete = viewModel::drawManualStroke,
                 onShapeComplete = viewModel::drawManualShape,
                 onFillTap = viewModel::fillManualTap,
                 onColorPickTap = viewModel::pickManualColor,
+                onSelectionComplete = { left, top, right, bottom ->
+                    viewModel.setSelection(
+                        com.waheed.artificerx.domain.model.SelectionRect(left, top, right, bottom),
+                    )
+                },
+                onTransformGestureStart = viewModel::beginTransformGesture,
+                onTransformGesture = viewModel::transformActiveLayer,
             )
+
+            // v0.4.30: appears only while a selection is active — Clear
+            // deletes the pixels inside it (real transparency, see
+            // CanvasCompositor.clearSelectionRegion), Deselect just drops
+            // the marquee without touching pixels.
+            if (state.selection != null) {
+                Row(
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 96.dp)
+                            .clip(MaterialTheme.shapes.medium)
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    androidx.compose.material3.TextButton(onClick = { viewModel.setSelection(null) }) {
+                        Text("Deselect")
+                    }
+                    androidx.compose.material3.TextButton(onClick = viewModel::clearSelectionContent) {
+                        Text("Clear", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
 
             if (isLayerPanelOpen) {
                 LayerPanelOverlay(
@@ -153,8 +189,10 @@ fun StudioScreen(
         ToolPalette(
             activeTool = state.toolState.activeTool,
             brushSize = state.toolState.brushSizePx,
+            brushType = state.toolState.brushType,
             onToolSelected = viewModel::selectTool,
             onBrushSizeChanged = viewModel::setBrushSize,
+            onBrushTypeSelected = viewModel::setBrushType,
         )
     }
 }
@@ -172,6 +210,7 @@ private fun StudioTopBar(
     onOpenProjectGallery: () -> Unit,
     onOpenExport: () -> Unit,
     onOpenSculptStudio: () -> Unit,
+    onOpenTimelapse: () -> Unit,
 ) {
     Row(
         modifier =
@@ -215,6 +254,9 @@ private fun StudioTopBar(
         IconButton(onClick = onOpenSculptStudio) {
             Icon(Icons.Filled.ViewInAr, contentDescription = "3D Sculpt Studio", tint = GoldPrimary)
         }
+        IconButton(onClick = onOpenTimelapse) {
+            Icon(Icons.Filled.History, contentDescription = "Timelapse", tint = GoldPrimary)
+        }
         IconButton(onClick = onToggleLayerPanel) {
             Icon(Icons.Filled.Layers, contentDescription = "Layers", tint = GoldPrimary)
         }
@@ -249,10 +291,14 @@ private fun CanvasRenderSurface(
     widthPx: Int,
     heightPx: Int,
     toolState: com.waheed.artificerx.domain.model.DrawToolState,
+    selection: com.waheed.artificerx.domain.model.SelectionRect?,
     onStrokeComplete: (points: List<Float>) -> Unit,
     onShapeComplete: (startX: Float, startY: Float, endX: Float, endY: Float) -> Unit,
     onFillTap: (x: Float, y: Float) -> Unit,
     onColorPickTap: (x: Float, y: Float) -> Unit,
+    onSelectionComplete: (left: Float, top: Float, right: Float, bottom: Float) -> Unit,
+    onTransformGestureStart: () -> Unit,
+    onTransformGesture: (dx: Float, dy: Float, scaleFactor: Float, rotationDegrees: Float, pivotX: Float, pivotY: Float) -> Unit,
 ) {
     // Live in-progress stroke/shape, in CANVAS BITMAP pixel space —
     // drawn as an immediate overlay so a finger drag shows visible
@@ -261,6 +307,11 @@ private fun CanvasRenderSurface(
     // bitmap write itself stays a single call on release).
     var livePoints by remember { mutableStateOf<List<Float>?>(null) }
     var liveShapeBounds by remember { mutableStateOf<FloatArray?>(null) }
+    // v0.4.30: same live-preview treatment for the selection marquee
+    // during a drag — separate from liveShapeBounds so a rectangle
+    // preview and a selection preview never fight over which one is
+    // showing if a tool switch happens mid-drag.
+    var liveSelectionBounds by remember { mutableStateOf<FloatArray?>(null) }
 
     Box(
         modifier =
@@ -335,6 +386,40 @@ private fun CanvasRenderSurface(
                                 },
                                 onFillTap = { x, y -> onFillTap(screenToCanvasX(x), screenToCanvasY(y)) },
                                 onColorPickTap = { x, y -> onColorPickTap(screenToCanvasX(x), screenToCanvasY(y)) },
+                                onSelectionInProgress = { sx, sy, ex, ey ->
+                                    liveSelectionBounds =
+                                        floatArrayOf(screenToCanvasX(sx), screenToCanvasY(sy), screenToCanvasX(ex), screenToCanvasY(ey))
+                                },
+                                onSelectionComplete = { sx, sy, ex, ey ->
+                                    liveSelectionBounds = null
+                                    onSelectionComplete(
+                                        screenToCanvasX(sx),
+                                        screenToCanvasY(sy),
+                                        screenToCanvasX(ex),
+                                        screenToCanvasY(ey),
+                                    )
+                                },
+                                onTransformGestureStart = onTransformGestureStart,
+                                // Compose's pan/zoom/rotation deltas arrive
+                                // in the SCREEN coordinate space this
+                                // Image occupies; dividing by `scale`
+                                // converts pan distance into canvas-pixel
+                                // distance (zoom/rotation are scale-
+                                // invariant ratios/angles, so they pass
+                                // through unchanged) before reaching the
+                                // ViewModel, which operates purely in
+                                // canvas-bitmap pixel space like every
+                                // other tool here.
+                                onTransformGesture = { dx, dy, zoom, rotation, pivotX, pivotY ->
+                                    onTransformGesture(
+                                        dx / scale,
+                                        dy / scale,
+                                        zoom,
+                                        rotation,
+                                        screenToCanvasX(pivotX),
+                                        screenToCanvasY(pivotY),
+                                    )
+                                },
                             ),
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                 )
@@ -345,7 +430,13 @@ private fun CanvasRenderSurface(
                 // forwarded to the ViewModel above stay in canvas space).
                 val previewPoints = livePoints
                 val previewShape = liveShapeBounds
-                if (previewPoints != null || previewShape != null) {
+                // v0.4.30: persisted selection (from state) or the
+                // in-progress drag preview, whichever is present —
+                // rendered as a dashed-look marquee (gold, semi-
+                // transparent fill) so it visibly reads as "selection"
+                // rather than the solid-stroke rectangle-shape preview.
+                val previewSelection = liveSelectionBounds ?: selection?.let { floatArrayOf(it.left, it.top, it.right, it.bottom) }
+                if (previewPoints != null || previewShape != null || previewSelection != null) {
                     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
                         val strokeColor =
                             runCatching { android.graphics.Color.parseColor(toolState.brushColorHex) }
@@ -387,6 +478,24 @@ private fun CanvasRenderSurface(
                                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidthDp),
                             )
                         }
+
+                        if (previewSelection != null) {
+                            val left = minOf(previewSelection[0], previewSelection[2]) * scale + offsetXPx
+                            val top = minOf(previewSelection[1], previewSelection[3]) * scale + offsetYPx
+                            val right = maxOf(previewSelection[0], previewSelection[2]) * scale + offsetXPx
+                            val bottom = maxOf(previewSelection[1], previewSelection[3]) * scale + offsetYPx
+                            drawRect(
+                                color = GoldPrimary.copy(alpha = 0.15f),
+                                topLeft = androidx.compose.ui.geometry.Offset(left, top),
+                                size = androidx.compose.ui.geometry.Size(right - left, bottom - top),
+                            )
+                            drawRect(
+                                color = GoldPrimary,
+                                topLeft = androidx.compose.ui.geometry.Offset(left, top),
+                                size = androidx.compose.ui.geometry.Size(right - left, bottom - top),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f),
+                            )
+                        }
                     }
                 }
             }
@@ -418,8 +527,10 @@ private fun CanvasRenderSurface(
 private fun ToolPalette(
     activeTool: DrawToolType,
     brushSize: Float,
+    brushType: com.waheed.artificerx.domain.model.BrushType,
     onToolSelected: (DrawToolType) -> Unit,
     onBrushSizeChanged: (Float) -> Unit,
+    onBrushTypeSelected: (com.waheed.artificerx.domain.model.BrushType) -> Unit,
 ) {
     val tools =
         remember {
@@ -430,8 +541,25 @@ private fun ToolPalette(
                 DrawToolType.GRADIENT to Icons.Filled.Gradient,
                 DrawToolType.FILL to Icons.Filled.FormatColorFill,
                 DrawToolType.SELECTION to Icons.Filled.Crop,
+                DrawToolType.TRANSFORM to Icons.Filled.Transform,
                 DrawToolType.TEXT to Icons.Filled.TextFields,
                 DrawToolType.EYEDROPPER to Icons.Filled.ColorLens,
+            )
+        }
+    // v0.4.30 real brush engine: each of these genuinely renders
+    // differently in CanvasCompositor.drawPath (see its doc) — this
+    // isn't a cosmetic label list, picking PENCIL vs MARKER vs
+    // AIRBRUSH actually changes the pixels that land.
+    val brushTypes =
+        remember {
+            listOf(
+                com.waheed.artificerx.domain.model.BrushType.INK_PEN to "Ink",
+                com.waheed.artificerx.domain.model.BrushType.PENCIL to "Pencil",
+                com.waheed.artificerx.domain.model.BrushType.MARKER to "Marker",
+                com.waheed.artificerx.domain.model.BrushType.CALLIGRAPHY to "Calligraphy",
+                com.waheed.artificerx.domain.model.BrushType.AIRBRUSH to "Airbrush",
+                com.waheed.artificerx.domain.model.BrushType.WATERCOLOR to "Watercolor",
+                com.waheed.artificerx.domain.model.BrushType.CHARCOAL to "Charcoal",
             )
         }
 
@@ -459,6 +587,27 @@ private fun ToolPalette(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+        }
+
+        if (activeTool == DrawToolType.BRUSH) {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
+            ) {
+                items(brushTypes) { (type, label) ->
+                    androidx.compose.material3.FilterChip(
+                        selected = type == brushType,
+                        onClick = { onBrushTypeSelected(type) },
+                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                        colors =
+                            androidx.compose.material3.FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = GoldPrimary.copy(alpha = 0.25f),
+                                selectedLabelColor = GoldPrimary,
+                            ),
+                    )
+                }
             }
         }
 

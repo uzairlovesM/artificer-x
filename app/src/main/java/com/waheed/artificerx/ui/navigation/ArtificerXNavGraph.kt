@@ -108,6 +108,7 @@ fun ArtificerXNavGraph(
                 onOpenProjectGallery = { navController.navigate(Destinations.PROJECT_GALLERY) },
                 onOpenExport = { projectId -> navController.navigate(Destinations.exportRoute(projectId)) },
                 onOpenSculptStudio = { navController.navigate(Destinations.SCULPT_STUDIO) },
+                onOpenTimelapse = { navController.navigate(Destinations.SHOW_PROCESS) },
                 viewModel = studioViewModel,
             )
         }
@@ -150,8 +151,18 @@ fun ArtificerXNavGraph(
             PlaceholderScreen(title = "Live Agent Log")
         }
 
-        composable(Destinations.SHOW_PROCESS) {
-            PlaceholderScreen(title = "Show Process")
+        composable(Destinations.SHOW_PROCESS) { backStackEntry ->
+            val parentEntry =
+                remember(backStackEntry) {
+                    navController.getBackStackEntry(Destinations.STUDIO)
+                }
+            val studioViewModel: com.waheed.artificerx.ui.screens.canvas.StudioViewModel =
+                androidx.hilt.navigation.compose
+                    .hiltViewModel(parentEntry)
+            com.waheed.artificerx.ui.screens.canvas.TimelapseScreen(
+                viewModel = studioViewModel,
+                onBack = { navController.popBackStack() },
+            )
         }
 
         composable(Destinations.PROJECT_GALLERY) {

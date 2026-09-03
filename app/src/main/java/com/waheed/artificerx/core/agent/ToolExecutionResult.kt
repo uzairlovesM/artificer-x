@@ -39,6 +39,7 @@ sealed class ParsedToolCall {
         val colorHex: String?,
         val strokeWidthPx: Float?,
         val opacity: Float?,
+        val brushType: com.waheed.artificerx.domain.model.BrushType?,
     ) : ParsedToolCall()
 
     data class DrawShape(
@@ -163,6 +164,60 @@ sealed class ParsedToolCall {
     // Section: Web search/fetch tools
     data class WebFetch(
         val url: String,
+    ) : ParsedToolCall()
+
+    data class WebSearch(
+        val query: String,
+    ) : ParsedToolCall()
+
+    // v0.4.30: full project/canvas customization access for the AI —
+    // previously the AI could only draw ON a canvas whose size,
+    // background, and default brush settings a human had already fixed
+    // in the UI. These let a turn like "make me a 2000x3000 poster with
+    // a dark navy background" actually configure the project itself,
+    // not just paint inside whatever was already there.
+    data class ResizeCanvas(
+        val widthPx: Int,
+        val heightPx: Int,
+    ) : ParsedToolCall()
+
+    data class SetCanvasBackground(
+        val colorHex: String,
+    ) : ParsedToolCall()
+
+    data class SetBrushDefaults(
+        val brushType: com.waheed.artificerx.domain.model.BrushType?,
+        val sizePx: Float?,
+        val colorHex: String?,
+        val opacity: Float?,
+        val hardness: Float?,
+    ) : ParsedToolCall()
+
+    // v0.4.30: AI-callable selection & transform — previously these
+    // existed only for manual touch input (CanvasTouchOverlow) despite
+    // the system prompt claiming the AI could use them, which was a
+    // real bug (the model would call a tool that didn't exist and get
+    // an "Unknown tool" failure). Backed by the same StudioViewModel
+    // methods the manual UI uses, so an AI-driven selection/transform
+    // and a human-driven one behave identically.
+    data class SetSelection(
+        val left: Float,
+        val top: Float,
+        val right: Float,
+        val bottom: Float,
+    ) : ParsedToolCall()
+
+    object ClearSelection : ParsedToolCall()
+
+    object DeleteSelectionContent : ParsedToolCall()
+
+    data class TransformLayer(
+        val dx: Float,
+        val dy: Float,
+        val scaleFactor: Float,
+        val rotationDegrees: Float,
+        val pivotX: Float?,
+        val pivotY: Float?,
     ) : ParsedToolCall()
 
     // 3D sculpting tool calls

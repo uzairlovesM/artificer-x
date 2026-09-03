@@ -1,5 +1,6 @@
 package com.waheed.artificerx.ui.screens.chat
 
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,8 +26,10 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -41,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -255,6 +259,28 @@ private fun NoProviderBanner() {
 }
 
 @Composable
+private fun StreamingCursor() {
+    val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "streaming_cursor")
+    val alpha by
+        infiniteTransition.animateFloat(
+            initialValue = 1f,
+            targetValue = 0.15f,
+            animationSpec =
+                androidx.compose.animation.core.infiniteRepeatable(
+                    animation = androidx.compose.animation.core.tween(durationMillis = 500),
+                    repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+                ),
+            label = "streaming_cursor_alpha",
+        )
+    Text(
+        text = "▍",
+        style = MaterialTheme.typography.bodyMedium,
+        color = GoldPrimary.copy(alpha = alpha),
+        modifier = Modifier.padding(start = 2.dp),
+    )
+}
+
+@Composable
 private fun ChatBubble(message: ChatMessage) {
     val isUser = message.role == ChatMessageRole.USER
     Row(
@@ -274,11 +300,23 @@ private fun ChatBubble(message: ChatMessage) {
                         },
                     ).padding(12.dp),
         ) {
-            Text(
-                text = message.text,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (isUser) androidx.compose.ui.graphics.Color.White else MaterialTheme.colorScheme.onBackground,
-            )
+            // v0.4.30: real per-token streaming (AgentOrchestrator.stream
+            // CloudProvider) means text can visibly still be arriving —
+            // a blinking cursor after the last character is the standard
+            // "still typing" affordance (ChatGPT/Claude apps use the
+            // same idea) and was meaningless before this fix, since the
+            // old fake streaming delivered the whole reply in one shot
+            // with nothing left to indicate.
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = message.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (isUser) androidx.compose.ui.graphics.Color.White else MaterialTheme.colorScheme.onBackground,
+                )
+                if (message.isStreaming) {
+                    StreamingCursor()
+                }
+            }
 
             if (message.toolCalls.isNotEmpty()) {
                 Spacer(modifier = Modifier.padding(top = 8.dp))
@@ -287,6 +325,75 @@ private fun ChatBubble(message: ChatMessage) {
                     Spacer(modifier = Modifier.padding(top = 4.dp))
                 }
             }
+
+            // v0.4.30: every AI turn that touches the canvas auto-saves to
+            // Pictures/ARTIFICER-X (see AgentChatViewModel.applyAgentEvent).
+            // This row is the visible confirmation of that, plus a direct
+            // way to actually look at or share what got saved without
+            // leaving the chat to go hunt through a gallery app.
+            if (message.autoSavedUri != null) {
+                Spacer(modifier = Modifier.padding(top = 8.dp))
+                AutoSavedRow(fileName = message.autoSavedFileName.orEmpty(), uri = message.autoSavedUri)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AutoSavedRow(
+    fileName: String,
+    uri: android.net.Uri,
+) {
+    val context = LocalContext.current
+    Row(
+        modifier =
+            Modifier
+                .clip(ToolCallChipShape)
+                .background(MaterialTheme.colorScheme.background)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.Download, contentDescription = null, tint = QualityPass, modifier = Modifier.size(14.dp))
+        Spacer(modifier = Modifier.padding(start = 6.dp))
+        Text(
+            text = "Saved: $fileName",
+            style = AgentLogTextStyle.copy(fontSize = 10.sp()),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.widthIn(max = 140.dp),
+        )
+        Spacer(modifier = Modifier.padding(start = 8.dp))
+        IconButton(
+            modifier = Modifier.size(28.dp),
+            onClick = {
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(android.content.Intent.ACTION_VIEW)
+                            .setDataAndType(uri, "image/png")
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                    )
+                }
+            },
+        ) {
+            Icon(Icons.Filled.Check, contentDescription = "View saved image", tint = GoldPrimary, modifier = Modifier.size(16.dp))
+        }
+        IconButton(
+            modifier = Modifier.size(28.dp),
+            onClick = {
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent.createChooser(
+                            android.content.Intent(android.content.Intent.ACTION_SEND)
+                                .setType("image/png")
+                                .putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                                .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                            "Share AI output",
+                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                }
+            },
+        ) {
+            Icon(Icons.Filled.Share, contentDescription = "Share saved image", tint = GoldPrimary, modifier = Modifier.size(16.dp))
         }
     }
 }

@@ -14,6 +14,12 @@ data class ChatCompletionRequest(
     val temperature: Double = 0.7,
     @SerialName("max_tokens") val maxTokens: Int = 2048,
     val stream: Boolean = false,
+    // v0.4.30 Deep Studio mode: OpenAI-compatible reasoning-effort hint
+    // ("low"/"medium"/"high"), forwarded only when the active
+    // QualityPreset is DEEP_STUDIO (see AgentSettings.reasoningEffort).
+    // Left null for every other preset/provider combination so models
+    // that don't recognize the field never receive it.
+    @SerialName("reasoning_effort") val reasoningEffort: String? = null,
 )
 
 /**
@@ -190,4 +196,50 @@ data class ApiErrorDto(
     val message: String? = null,
     val type: String? = null,
     val code: String? = null,
+)
+
+/**
+ * v0.4.30 REAL STREAMING: OpenAI-compatible SSE delta-chunk shape,
+ * received one per `data: {...}` line while `stream: true` is set on
+ * the request. Previously ArtificerX never actually sent stream=true
+ * anywhere and always waited for one full ChatCompletionResponse
+ * before showing anything — the "streaming" chat bubble was fake, a
+ * single AgentTextChunk containing the entire finished reply. These
+ * DTOs are what AgentOrchestrator.streamCloudProvider parses per-line
+ * to emit real incremental AgentTextChunk events as tokens actually
+ * arrive from Groq/OpenRouter, and to accumulate tool-call deltas
+ * (which providers also stream in fragments, indexed by call slot)
+ * into complete tool calls once the stream ends.
+ */
+@Serializable
+data class ChatCompletionStreamChunkDto(
+    val choices: List<StreamChoiceDto> = emptyList(),
+)
+
+@Serializable
+data class StreamChoiceDto(
+    val index: Int = 0,
+    val delta: StreamDeltaDto = StreamDeltaDto(),
+    @SerialName("finish_reason") val finishReason: String? = null,
+)
+
+@Serializable
+data class StreamDeltaDto(
+    val role: String? = null,
+    val content: String? = null,
+    @SerialName("tool_calls") val toolCalls: List<StreamToolCallDeltaDto>? = null,
+)
+
+@Serializable
+data class StreamToolCallDeltaDto(
+    val index: Int = 0,
+    val id: String? = null,
+    val type: String? = null,
+    val function: StreamFunctionCallDeltaDto? = null,
+)
+
+@Serializable
+data class StreamFunctionCallDeltaDto(
+    val name: String? = null,
+    val arguments: String? = null,
 )

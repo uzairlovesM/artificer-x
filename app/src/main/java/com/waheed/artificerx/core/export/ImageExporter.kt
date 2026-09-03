@@ -3,7 +3,6 @@ package com.waheed.artificerx.core.export
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
-import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -16,6 +15,7 @@ import javax.inject.Singleton
 sealed class ExportResult {
     data class Success(
         val displayName: String,
+        val uri: android.net.Uri,
     ) : ExportResult()
 
     data class Failure(
@@ -26,9 +26,17 @@ sealed class ExportResult {
 /**
  * Section export flow: writes the composited canvas Bitmap as a real
  * PNG into the device's public Pictures/ARTIFICER-X gallery folder via
- * MediaStore (API 29+) or the legacy Environment path (API 26-28),
- * so exported artwork shows up in the user's normal gallery app —
- * not buried in app-private storage where they'd never find it.
+ * MediaStore, so exported artwork shows up in the user's normal
+ * gallery app — not buried in app-private storage where they'd never
+ * find it.
+ *
+ * v0.4.30: minSdk is now 33 (personal-device-only app, see
+ * build.gradle.kts), so the pre-Q legacy Environment-path branch that
+ * used to exist here is unreachable dead code and has been removed —
+ * MediaStore is the only path Android 33+ ever takes. Also now returns
+ * the written Uri (not just the display name) so callers like
+ * AgentChatViewModel's auto-save can offer a direct "View"/"Share"
+ * action on the AI's output instead of just naming the file.
  */
 @Singleton
 class ImageExporter
@@ -42,22 +50,17 @@ class ImageExporter
         ): ExportResult =
             withContext(Dispatchers.IO) {
                 val displayName = "$fileNameWithoutExtension.png"
-                runCatching {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        exportViaMediaStore(bitmap, displayName)
-                    } else {
-                        exportViaLegacyPath(bitmap, displayName)
-                    }
-                }.fold(
-                    onSuccess = { ExportResult.Success(displayName) },
-                    onFailure = { ExportResult.Failure(it.message ?: "Unknown export error") },
-                )
+                runCatching { exportViaMediaStore(bitmap, displayName) }
+                    .fold(
+                        onSuccess = { uri -> ExportResult.Success(displayName, uri) },
+                        onFailure = { ExportResult.Failure(it.message ?: "Unknown export error") },
+                    )
             }
 
         private fun exportViaMediaStore(
             bitmap: Bitmap,
             displayName: String,
-        ) {
+        ): android.net.Uri {
             val resolver = context.contentResolver
             val contentValues =
                 ContentValues().apply {
@@ -78,26 +81,6 @@ class ImageExporter
             contentValues.clear()
             contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
             resolver.update(uri, contentValues, null, null)
-        }
-
-        private fun exportViaLegacyPath(
-            bitmap: Bitmap,
-            displayName: String,
-        ) {
-            val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
-            val appDir = java.io.File(picturesDir, "ARTIFICER-X")
-            if (!appDir.exists()) appDir.mkdirs()
-            val file = java.io.File(appDir, displayName)
-            java.io.FileOutputStream(file).use { stream ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-            }
-
-            // Trigger a media scan so it appears immediately in gallery apps
-            android.media.MediaScannerConnection.scanFile(
-                context,
-                arrayOf(file.absolutePath),
-                arrayOf("image/png"),
-                null,
-            )
+            return uri
         }
     }

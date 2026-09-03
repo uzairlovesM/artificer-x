@@ -25,6 +25,13 @@ object ToolRegistry {
             deleteLayerTool(),
             setActiveLayerTool(),
             drawPathTool(),
+            resizeCanvasTool(),
+            setCanvasBackgroundTool(),
+            setBrushDefaultsTool(),
+            setSelectionTool(),
+            clearSelectionTool(),
+            deleteSelectionContentTool(),
+            transformLayerTool(),
             drawShapeTool(),
             applyGradientTool(),
             fillRegionTool(),
@@ -42,6 +49,7 @@ object ToolRegistry {
             drawCurveTool(),
             importImageLayerTool(),
             webFetchTool(),
+            webSearchTool(),
             createPrimitiveTool(),
             sculptStrokeTool(),
             deleteMeshTool(),
@@ -125,8 +133,172 @@ object ToolRegistry {
                                 putJsonObject("color_hex") { put("type", "string") }
                                 putJsonObject("stroke_width_px") { put("type", "number") }
                                 putJsonObject("opacity") { put("type", "number") }
+                                putJsonObject("brush_type") {
+                                    put("type", "string")
+                                    put("description", "Which real brush engine to render with — each renders genuinely differently.")
+                                    putJsonArray("enum") {
+                                        add(JsonPrimitive("pencil"))
+                                        add(JsonPrimitive("ink_pen"))
+                                        add(JsonPrimitive("marker"))
+                                        add(JsonPrimitive("calligraphy"))
+                                        add(JsonPrimitive("airbrush"))
+                                        add(JsonPrimitive("charcoal"))
+                                        add(JsonPrimitive("watercolor"))
+                                    }
+                                }
                             }
                             putJsonArray("required") { add(JsonPrimitive("points")) }
+                        },
+                ),
+        )
+
+    private fun resizeCanvasTool() =
+        ToolDefinitionDto(
+            function =
+                FunctionDefinitionDto(
+                    name = "resize_canvas",
+                    description =
+                        "Resizes the active project's canvas to an exact pixel width/height — call this FIRST " +
+                            "when a request implies a specific format (e.g. '2000x3000 poster', 'square Instagram " +
+                            "post', '16:9 wallpaper') before creating any layers, since existing layer content is " +
+                            "cropped/padded to the new bounds, not rescaled.",
+                    parameters =
+                        buildJsonObject {
+                            put("type", "object")
+                            putJsonObject("properties") {
+                                putJsonObject("width_px") { put("type", "integer") }
+                                putJsonObject("height_px") { put("type", "integer") }
+                            }
+                            putJsonArray("required") { add(JsonPrimitive("width_px")); add(JsonPrimitive("height_px")) }
+                        },
+                ),
+        )
+
+    private fun setCanvasBackgroundTool() =
+        ToolDefinitionDto(
+            function =
+                FunctionDefinitionDto(
+                    name = "set_canvas_background",
+                    description = "Sets the project's base background color (the bottom-most layer's fill).",
+                    parameters =
+                        buildJsonObject {
+                            put("type", "object")
+                            putJsonObject("properties") {
+                                putJsonObject("color_hex") { put("type", "string") }
+                            }
+                            putJsonArray("required") { add(JsonPrimitive("color_hex")) }
+                        },
+                ),
+        )
+
+    private fun setBrushDefaultsTool() =
+        ToolDefinitionDto(
+            function =
+                FunctionDefinitionDto(
+                    name = "set_brush_defaults",
+                    description =
+                        "Sets the standing brush configuration (type/size/color/opacity/hardness) used by any " +
+                            "following draw_path call that doesn't explicitly override that field — convenient " +
+                            "when drawing many strokes with the same brush instead of repeating every parameter " +
+                            "on every draw_path call.",
+                    parameters =
+                        buildJsonObject {
+                            put("type", "object")
+                            putJsonObject("properties") {
+                                putJsonObject("brush_type") {
+                                    put("type", "string")
+                                    putJsonArray("enum") {
+                                        add(JsonPrimitive("pencil"))
+                                        add(JsonPrimitive("ink_pen"))
+                                        add(JsonPrimitive("marker"))
+                                        add(JsonPrimitive("calligraphy"))
+                                        add(JsonPrimitive("airbrush"))
+                                        add(JsonPrimitive("charcoal"))
+                                        add(JsonPrimitive("watercolor"))
+                                    }
+                                }
+                                putJsonObject("size_px") { put("type", "number") }
+                                putJsonObject("color_hex") { put("type", "string") }
+                                putJsonObject("opacity") { put("type", "number") }
+                                putJsonObject("hardness") { put("type", "number") }
+                            }
+                        },
+                ),
+        )
+
+    private fun setSelectionTool() =
+        ToolDefinitionDto(
+            function =
+                FunctionDefinitionDto(
+                    name = "set_selection",
+                    description =
+                        "Sets a rectangular selection on the canvas in pixel coordinates. Any following " +
+                            "delete_selection_content call operates only inside this rect.",
+                    parameters =
+                        buildJsonObject {
+                            put("type", "object")
+                            putJsonObject("properties") {
+                                putJsonObject("left") { put("type", "number") }
+                                putJsonObject("top") { put("type", "number") }
+                                putJsonObject("right") { put("type", "number") }
+                                putJsonObject("bottom") { put("type", "number") }
+                            }
+                            putJsonArray("required") {
+                                add(JsonPrimitive("left")); add(JsonPrimitive("top"))
+                                add(JsonPrimitive("right")); add(JsonPrimitive("bottom"))
+                            }
+                        },
+                ),
+        )
+
+    private fun clearSelectionTool() =
+        ToolDefinitionDto(
+            function =
+                FunctionDefinitionDto(
+                    name = "clear_selection",
+                    description = "Deselects — drops the active selection rectangle without touching any pixels.",
+                    parameters = buildJsonObject { put("type", "object"); putJsonObject("properties") {} },
+                ),
+        )
+
+    private fun deleteSelectionContentTool() =
+        ToolDefinitionDto(
+            function =
+                FunctionDefinitionDto(
+                    name = "delete_selection_content",
+                    description =
+                        "Permanently clears (to transparency) the pixels on the active layer inside the current " +
+                            "selection rectangle. Requires set_selection to have been called first.",
+                    parameters = buildJsonObject { put("type", "object"); putJsonObject("properties") {} },
+                ),
+        )
+
+    private fun transformLayerTool() =
+        ToolDefinitionDto(
+            function =
+                FunctionDefinitionDto(
+                    name = "transform_layer",
+                    description =
+                        "Moves/scales/rotates the ENTIRE active layer's pixel content in place — use this to " +
+                            "reposition, resize, or rotate something you already drew, instead of erasing and " +
+                            "redrawing it from scratch.",
+                    parameters =
+                        buildJsonObject {
+                            put("type", "object")
+                            putJsonObject("properties") {
+                                putJsonObject("dx") { put("type", "number"); put("description", "Pixels to move horizontally.") }
+                                putJsonObject("dy") { put("type", "number"); put("description", "Pixels to move vertically.") }
+                                putJsonObject("scale_factor") {
+                                    put("type", "number")
+                                    put("description", "1.0 = no change, 2.0 = double size, 0.5 = half size.")
+                                }
+                                putJsonObject("rotation_degrees") { put("type", "number") }
+                                putJsonObject("pivot_x") {
+                                    put("type", "number")
+                                    put("description", "Pivot point for scale/rotate; defaults to canvas center if omitted.")
+                                }
+                                putJsonObject("pivot_y") { put("type", "number") }
+                            }
                         },
                 ),
         )
@@ -516,8 +688,9 @@ object ToolRegistry {
                     name = "enable_symmetry",
                     description =
                         "Turns on symmetry mode for subsequent draw_path calls on the active layer: every " +
-                            "stroke is automatically mirrored across a vertical, horizontal, or radial axis, " +
-                            "useful for mandalas, faces, and symmetric character designs.",
+                            "stroke is automatically mirrored across a vertical, horizontal, radial, or " +
+                            "kaleidoscope axis, useful for mandalas, faces, symmetric character designs, " +
+                            "and dense ornamental patterns.",
                     parameters =
                         buildJsonObject {
                             put("type", "object")
@@ -530,6 +703,11 @@ object ToolRegistry {
                                         add(JsonPrimitive("horizontal"))
                                         add(JsonPrimitive("radial_4"))
                                         add(JsonPrimitive("radial_8"))
+                                        add(JsonPrimitive("radial_12"))
+                                        add(JsonPrimitive("radial_16"))
+                                        add(JsonPrimitive("kaleidoscope_6"))
+                                        add(JsonPrimitive("kaleidoscope_12"))
+                                        add(JsonPrimitive("mandala_24"))
                                     }
                                 }
                             }
@@ -653,6 +831,35 @@ object ToolRegistry {
                                 }
                             }
                             putJsonArray("required") { add(JsonPrimitive("url")) }
+                        },
+                ),
+        )
+
+    // v0.4.30: real research capability (DuckDuckGo HTML scrape, no
+    // API key — see WebSearcher's doc for why). This is what Deep
+    // Studio mode's mandatory "research before drawing" workflow
+    // actually calls; without it that workflow would just be asking
+    // the model to pretend.
+    private fun webSearchTool() =
+        ToolDefinitionDto(
+            function =
+                FunctionDefinitionDto(
+                    name = "web_search",
+                    description =
+                        "Searches the web and returns a list of {title, url, snippet} results. Use this BEFORE " +
+                            "drawing anything you're not fully certain how to construct correctly — anatomy, " +
+                            "proportions, color palettes, art-style technique, real-world reference for an object " +
+                            "or scene. Follow up with web_fetch on the most relevant result URL to read full detail.",
+                    parameters =
+                        buildJsonObject {
+                            put("type", "object")
+                            putJsonObject("properties") {
+                                putJsonObject("query") {
+                                    put("type", "string")
+                                    put("description", "The search query, e.g. 'anime eye anatomy front view proportions'.")
+                                }
+                            }
+                            putJsonArray("required") { add(JsonPrimitive("query")) }
                         },
                 ),
         )

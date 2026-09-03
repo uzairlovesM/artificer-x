@@ -2,18 +2,24 @@ package com.waheed.artificerx.core.agent
 
 import com.waheed.artificerx.core.network.ChatCompletionRequest
 import com.waheed.artificerx.core.network.ChatCompletionResponse
+import com.waheed.artificerx.core.network.ChatCompletionStreamChunkDto
 import com.waheed.artificerx.core.network.ChatMessageDto
 import com.waheed.artificerx.core.network.ContentPartDto
+import com.waheed.artificerx.core.network.FunctionCallDto
 import com.waheed.artificerx.core.network.ImageUrlDto
+import com.waheed.artificerx.core.network.StreamToolCallDeltaDto
 import com.waheed.artificerx.core.network.ToolCallDto
 import com.waheed.artificerx.data.repository.ProviderConfigRepository
 import com.waheed.artificerx.domain.model.AiProviderConfig
 import com.waheed.artificerx.ui.screens.canvas.StudioViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
@@ -64,6 +70,7 @@ class AgentOrchestrator
         private val localModelRepository: com.waheed.artificerx.data.repository.LocalModelRepository,
         private val localInferenceEngine: LocalInferenceEngine,
         private val htmlFetcher: com.waheed.artificerx.core.web.HtmlFetcher,
+        private val webSearcher: com.waheed.artificerx.core.web.WebSearcher,
     ) {
         // Section 84/135/136/137: device-state-aware throttling. Cast
         // rather than a constructor-injected type, since ArtificerXApp
@@ -160,7 +167,7 @@ class AgentOrchestrator
                 val worldModel = if (projectId != null) worldModelStore.get(projectId) else null
 
                 val messages = mutableListOf<ChatMessageDto>()
-                messages.add(systemPromptMessage(selectedRole, worldModel))
+                messages.add(systemPromptMessage(selectedRole, worldModel, agentSettings))
                 messages.addAll(conversationHistory)
                 messages.add(userTurnMessage(userText, attachedImageBase64))
 
@@ -180,9 +187,29 @@ class AgentOrchestrator
 
                     emit(AgentEvent.ThinkingStarted(provider.displayName))
 
-                    val response = callProvider(provider, messages, effectiveTemperature.toDouble())
+                    // v0.4.30 REAL STREAMING: local GGUF still goes through
+                    // the old one-shot callProvider (see its own doc note
+                    // for why — the native llama.cpp bridge needs its own
+                    // token-callback wiring, tracked as separate follow-up
+                    // work and NOT silently pretended to be solved here).
+                    // Every cloud provider (Groq/OpenRouter/Cloudflare/
+                    // custom) now genuinely streams: streamCloudProvider
+                    // emits a real AgentEvent.AgentTextChunk per SSE delta
+                    // as it arrives over the socket, not one fake chunk
+                    // containing the whole finished reply.
+                    val turnResult: TurnCallResult? =
+                        if (provider.type == com.waheed.artificerx.domain.model.AiProviderType.LOCAL_GGUF) {
+                            val response = callProvider(provider, messages, effectiveTemperature.toDouble())
+                            val message = response?.choices?.firstOrNull()?.message
+                            if (message?.contentText?.isNotBlank() == true) {
+                                emit(AgentEvent.AgentTextChunk(message.contentText))
+                            }
+                            response?.let { TurnCallResult(message, it.choices.firstOrNull()?.finishReason) }
+                        } else {
+                            streamCloudProvider(provider, messages, effectiveTemperature.toDouble(), agentSettings.reasoningEffort) { event -> emit(event) }
+                        }
 
-                    if (response == null) {
+                    if (turnResult == null || turnResult.message == null) {
                         if (providerIndex + 1 < providers.size) {
                             emit(
                                 AgentEvent.ProviderFallback(
@@ -201,25 +228,15 @@ class AgentOrchestrator
 
                     providerConfigRepository.incrementUsage(provider.toRecordShapeForUsage())
 
-                    val choice = response.choices.firstOrNull()
-                    if (choice == null) {
-                        emit(AgentEvent.Error("Provider returned an empty response.", isFatal = false))
-                        finished = true
-                        continue
-                    }
-
-                    val assistantMessage = choice.message
+                    val assistantMessage = turnResult.message
                     messages.add(assistantMessage)
 
                     val toolCalls = assistantMessage.toolCalls
                     if (toolCalls.isNullOrEmpty()) {
-                        val textContent =
-                            assistantMessage.contentText
-                                ?: assistantMessage.contentParts?.firstOrNull { it.type == "text" }?.text
-                                ?: ""
-                        if (textContent.isNotBlank()) {
-                            emit(AgentEvent.AgentTextChunk(textContent))
-                        }
+                        // Text was already streamed incrementally as it
+                        // arrived (see AgentTextChunk emissions above /
+                        // inside streamCloudProvider) — nothing left to
+                        // emit here, just close out the turn.
                         finished = true
                         continue
                     }
@@ -266,6 +283,8 @@ class AgentOrchestrator
                                 // for canvas-thread safety and was never meant to
                                 // block on I/O).
                                 executeWebFetch(parsed)
+                            } else if (parsed is ParsedToolCall.WebSearch) {
+                                executeWebSearch(parsed)
                             } else {
                                 withContext(Dispatchers.Main.immediate) {
                                     if (studioViewModel != null) {
@@ -386,6 +405,7 @@ class AgentOrchestrator
         private fun systemPromptMessage(
             role: com.waheed.artificerx.core.agent.multiagent.AgentRole,
             worldModel: com.waheed.artificerx.core.agent.multiagent.WorldModel?,
+            agentSettings: com.waheed.artificerx.data.local.datastore.AgentSettings? = null,
         ): ChatMessageDto {
             val basePrompt =
                 """
@@ -397,7 +417,22 @@ class AgentOrchestrator
                 draw_path, draw_shape, apply_gradient, fill_region,
                 set_layer_property, pick_color, apply_filter, add_text,
                 create_mask, enable_symmetry, apply_pattern, draw_curve,
-                import_image_layer, inspect_canvas.
+                import_image_layer, inspect_canvas, set_selection,
+                clear_selection, delete_selection_content, transform_layer,
+                web_search, web_fetch, resize_canvas, set_canvas_background,
+                set_brush_defaults.
+
+                Note: clear_selection only deselects (drops the rectangle,
+                touches no pixels) — use delete_selection_content when you
+                actually want to erase what's inside a selection.
+
+                resize_canvas / set_canvas_background / set_brush_defaults give
+                you full control over the project itself, not just what you draw
+                inside it — call resize_canvas FIRST whenever a request implies a
+                specific format (poster dimensions, square post, wallpaper aspect
+                ratio) before creating layers. Use set_brush_defaults once to lock
+                in a brush type/size/color for a whole sequence of draw_path calls
+                instead of repeating those fields on every single call.
 
                 3D sculpting tools: create_primitive, sculpt_stroke, delete_mesh,
                 set_mesh_color, transform_mesh, inspect_scene.
@@ -411,12 +446,64 @@ class AgentOrchestrator
                 nothing on the canvas or in the scene.
                 """.trimIndent()
 
+            // v0.4.30 Deep Studio mode: this is the actual difference
+            // between "AI draws one flat sloppy thing" and "AI researches,
+            // plans, and builds like a real illustrator" — a concrete
+            // mandatory workflow, not just "try harder" framing. Every
+            // step below maps to real tool calls the model already has
+            // (web_search/web_fetch are genuinely wired, not decorative —
+            // see webSearchTool/webFetchTool in ToolExecutor).
+            val deepStudioSection =
+                if (agentSettings?.isDeepStudioMode == true) {
+                    """
+
+
+                    DEEP STUDIO MODE IS ACTIVE for this turn. You have a large
+                    tool-call budget (${agentSettings.effectiveMaxIterations} calls) — use it. A
+                    rushed, single-layer result is a FAILURE in this mode even if it
+                    technically completes. Follow this workflow for any creative
+                    request (character, scene, background, object, pattern):
+
+                    1. RESEARCH FIRST. Call web_search for real visual/anatomical/
+                       stylistic reference before drawing anything (e.g. "anime eye
+                       anatomy front view proportions", "cel shading technique
+                       layer order", "[subject] color palette reference"). Call
+                       web_fetch on the most relevant result to read real detail,
+                       not just the search snippet. Do this for every distinct
+                       element you are unsure how to construct correctly (eyes,
+                       hands, hair flow, folds, perspective, lighting direction).
+                    2. PLAN explicitly in your text response before drawing: list
+                       the layers you will build and in what order, and what
+                       reference informed each one.
+                    3. BUILD IN REAL SEPARATE LAYERS via create_layer — never
+                       flatten a whole character/scene into one or two layers.
+                       A typical build order: rough sketch layer -> base color
+                       (flat fills) layer -> shading/shadow layer -> highlights
+                       layer -> line art / detail layer -> background layer ->
+                       effects/atmosphere layer. Name each layer descriptively
+                       (set_layer_property) so the layer list itself documents
+                       the construction.
+                    4. SELF-CHECK with inspect_canvas between major phases and
+                       compare against what you researched — fix proportions or
+                       color choices that don't match reference before moving on.
+                    5. Only call finish_turn once every planned layer exists and
+                       you've verified the result against your own plan.
+
+                    Do not skip the research step because you feel confident —
+                    confidence without a real web_search/web_fetch call in this
+                    mode is exactly the "ghatiya" low-effort output this mode
+                    exists to eliminate.
+                    """.trimIndent()
+                } else {
+                    ""
+                }
+
             val roleSection = "\n\nCurrent specialist focus (${role.displayName}):\n${role.focusInstruction}"
             val worldModelSection = worldModel?.toPromptBlock()?.let { "\n\n$it" } ?: ""
 
             return ChatMessageDto(
                 role = "system",
-                contentText = basePrompt + roleSection + worldModelSection,
+                contentText = basePrompt + deepStudioSection + roleSection + worldModelSection,
             )
         }
 
@@ -539,6 +626,219 @@ class AgentOrchestrator
             }
         }
 
+        /** v0.4.30: the real research call behind Deep Studio mode's
+         *  mandatory "search before you draw" workflow — see
+         *  WebSearcher's doc for the no-API-key DuckDuckGo approach.
+         *  Same interception pattern as executeWebFetch above (real
+         *  network I/O, kept off the Main-dispatched ToolExecutor). */
+        private suspend fun executeWebSearch(call: ParsedToolCall.WebSearch): ToolExecutionResult {
+            if (call.query.isBlank()) {
+                return ToolExecutionResult.Failure("web_search requires a non-empty query argument.")
+            }
+            return when (val result = webSearcher.search(call.query)) {
+                is com.waheed.artificerx.core.web.WebSearchResult.Success -> {
+                    val formatted =
+                        result.results.withIndex().joinToString("\n\n") { (index, item) ->
+                            "${index + 1}. ${item.title}\n${item.url}\n${item.snippet}"
+                        }
+                    ToolExecutionResult.Success(
+                        message = "Search results for \"${result.query}\":\n\n$formatted",
+                        requiresSnapshot = false,
+                    )
+                }
+                is com.waheed.artificerx.core.web.WebSearchResult.NoResults ->
+                    ToolExecutionResult.Success(
+                        message = "No search results found for \"${result.query}\". Try a different or broader query.",
+                        requiresSnapshot = false,
+                    )
+                is com.waheed.artificerx.core.web.WebSearchResult.NetworkError ->
+                    ToolExecutionResult.Failure("Search for \"${result.query}\" failed: ${result.message}")
+            }
+        }
+
+        /** v0.4.30 REAL STREAMING: result shape the main turn loop needs
+         *  regardless of whether it came from the streamed cloud path or
+         *  the one-shot local-model path — keeps the loop body identical
+         *  either way. */
+        private data class TurnCallResult(
+            val message: ChatMessageDto?,
+            val finishReason: String?,
+        )
+
+        private class ToolCallAccumulator {
+            var id: String = ""
+            var type: String = "function"
+            var name: String = ""
+            val argumentsBuilder = StringBuilder()
+        }
+
+        private sealed class StreamEvent {
+            data class TextDelta(
+                val text: String,
+            ) : StreamEvent()
+
+            data class ToolCallChunk(
+                val delta: StreamToolCallDeltaDto,
+            ) : StreamEvent()
+
+            data class Finished(
+                val reason: String?,
+            ) : StreamEvent()
+
+            data class Failed(
+                val reason: String,
+            ) : StreamEvent()
+        }
+
+        /** The actual fix: opens the HTTP request with stream=true, reads
+         *  the response body's SSE lines one at a time off the socket as
+         *  they arrive (not after the whole body is buffered — that's
+         *  what `stream=false` + `response.body.string()` in the old
+         *  [callProvider] did, which is exactly why the UI could never
+         *  show real progressive text), and turns each `data: {...}` line
+         *  into a [StreamEvent] the instant it's parsed. Text deltas are
+         *  forwarded to the caller's [emit] immediately — that's the live
+         *  token to the chat bubble. Tool-call deltas are accumulated
+         *  (providers stream a tool call's name/arguments in fragments
+         *  across many chunks, indexed by call slot) until the stream's
+         *  finish_reason arrives, at which point a complete ChatMessageDto
+         *  is assembled so the rest of the turn loop — tool execution,
+         *  message history — works exactly as it did with the old
+         *  non-streamed response.
+         *
+         *  Uses callbackFlow rather than a plain suspend function doing
+         *  `withContext(Dispatchers.IO) { ...emit... }` deliberately: Kotlin
+         *  Flow forbids calling emit() from a different coroutine context
+         *  than the one collecting it ("flow invariant violated"), and the
+         *  blocking OkHttp socket read has to run on Dispatchers.IO. Doing
+         *  the read inside callbackFlow's own IO-dispatched child
+         *  coroutine and forwarding through trySend(), then collecting
+         *  that flow with a plain `.collect { }` back on the caller's own
+         *  coroutine (where calling the passed-in `emit` lambda is legal),
+         *  is the correct/safe bridge between "blocking network read" and
+         *  "cooperative Flow emission" for exactly this situation. */
+        private suspend fun streamCloudProvider(
+            provider: AiProviderConfig,
+            messages: List<ChatMessageDto>,
+            temperature: Double,
+            reasoningEffort: String?,
+            emit: suspend (AgentEvent) -> Unit,
+        ): TurnCallResult? {
+            val rawKey = providerConfigRepository.rawKeyFor(provider.keyAlias) ?: return null
+            val modelId = provider.defaultModelId ?: defaultModelFor(provider)
+
+            val requestBody =
+                ChatCompletionRequest(
+                    model = modelId,
+                    messages = messages,
+                    tools = ToolRegistry.ALL_TOOLS,
+                    temperature = temperature,
+                    maxTokens = if (reasoningEffort != null) 4096 else 2048,
+                    stream = true,
+                    reasoningEffort = reasoningEffort,
+                )
+            val bodyJson = json.encodeToString(ChatCompletionRequest.serializer(), requestBody)
+            val request =
+                Request
+                    .Builder()
+                    .url("${provider.baseUrl.trimEnd('/')}/chat/completions")
+                    .header("Authorization", "Bearer $rawKey")
+                    .header("Accept", "text/event-stream")
+                    .post(bodyJson.toRequestBody("application/json".toMediaType()))
+                    .build()
+
+            val events: Flow<StreamEvent> =
+                callbackFlow {
+                    val call = client.newCall(request)
+                    launch(Dispatchers.IO) {
+                        try {
+                            call.execute().use { response ->
+                                if (!response.isSuccessful) {
+                                    trySend(StreamEvent.Failed("HTTP ${response.code}"))
+                                    return@use
+                                }
+                                val source = response.body?.source()
+                                if (source == null) {
+                                    trySend(StreamEvent.Failed("Empty response body"))
+                                    return@use
+                                }
+                                while (!source.exhausted()) {
+                                    val line = runCatching { source.readUtf8Line() }.getOrNull() ?: break
+                                    if (line.isBlank() || !line.startsWith("data:")) continue
+                                    val payload = line.removePrefix("data:").trim()
+                                    if (payload == "[DONE]") break
+                                    val chunk =
+                                        runCatching {
+                                            json.decodeFromString(ChatCompletionStreamChunkDto.serializer(), payload)
+                                        }.getOrNull() ?: continue
+                                    val choice = chunk.choices.firstOrNull() ?: continue
+                                    val content = choice.delta.content
+                                    if (!content.isNullOrEmpty()) {
+                                        trySend(StreamEvent.TextDelta(content))
+                                    }
+                                    choice.delta.toolCalls?.forEach { toolDelta ->
+                                        trySend(StreamEvent.ToolCallChunk(toolDelta))
+                                    }
+                                    if (choice.finishReason != null) {
+                                        trySend(StreamEvent.Finished(choice.finishReason))
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            trySend(StreamEvent.Failed(e.message ?: "Stream read error"))
+                        } finally {
+                            close()
+                        }
+                    }
+                    awaitClose { call.cancel() }
+                }
+
+            val textBuilder = StringBuilder()
+            val toolAccumulators = sortedMapOf<Int, ToolCallAccumulator>()
+            var finishReason: String? = null
+            var hadHardFailure = false
+
+            events.collect { streamEvent ->
+                when (streamEvent) {
+                    is StreamEvent.TextDelta -> {
+                        textBuilder.append(streamEvent.text)
+                        emit(AgentEvent.AgentTextChunk(streamEvent.text))
+                    }
+                    is StreamEvent.ToolCallChunk -> {
+                        val acc = toolAccumulators.getOrPut(streamEvent.delta.index) { ToolCallAccumulator() }
+                        streamEvent.delta.id?.let { acc.id = it }
+                        streamEvent.delta.type?.let { acc.type = it }
+                        streamEvent.delta.function?.name?.let { acc.name = it }
+                        streamEvent.delta.function?.arguments?.let { acc.argumentsBuilder.append(it) }
+                    }
+                    is StreamEvent.Finished -> finishReason = streamEvent.reason
+                    is StreamEvent.Failed -> hadHardFailure = true
+                }
+            }
+
+            if (hadHardFailure && textBuilder.isEmpty() && toolAccumulators.isEmpty()) return null
+
+            val toolCallDtos =
+                toolAccumulators.entries
+                    .sortedBy { it.key }
+                    .mapNotNull { (index, acc) ->
+                        if (acc.name.isBlank()) return@mapNotNull null
+                        ToolCallDto(
+                            id = acc.id.ifBlank { "call_${provider.id}_${index}_${System.nanoTime()}" },
+                            type = acc.type,
+                            function = FunctionCallDto(name = acc.name, arguments = acc.argumentsBuilder.toString().ifBlank { "{}" }),
+                        )
+                    }
+
+            val assistantMessage =
+                ChatMessageDto(
+                    role = "assistant",
+                    contentText = if (toolCallDtos.isEmpty()) textBuilder.toString() else null,
+                    toolCalls = toolCallDtos.ifEmpty { null },
+                )
+            return TurnCallResult(assistantMessage, finishReason)
+        }
+
         private suspend fun callProvider(
             provider: AiProviderConfig,
             messages: List<ChatMessageDto>,
@@ -621,10 +921,26 @@ class AgentOrchestrator
             }.getOrNull()
         }
 
+        /** CRITICAL FIX (v0.4.30): both hardcoded defaults below were dead
+         *  model IDs — Groq decommissioned llama-3.2-90b-vision-preview and
+         *  OpenRouter no longer serves a free Llama-3.2 vision variant. Every
+         *  agent turn on a freshly-added provider (no defaultModelId saved
+         *  yet) was silently calling a 404'd model, which either fails the
+         *  whole turn or falls back with a useless response — this is the
+         *  root cause behind "AI kuch nahi deta / dikhawa karta hai" for
+         *  users who hadn't manually picked a model in Settings. Verified
+         *  live via web search on 2026-09-02:
+         *  - Groq's current vision+tool-calling model is qwen/qwen3.6-27b
+         *    (multimodal, tool use, JSON mode).
+         *  - OpenRouter's free Llama vision tier is gone; openrouter/free
+         *    is their auto-router that filters for vision+tools+structured
+         *    output automatically, so it survives free-model rotation
+         *    instead of hardcoding an ID that dies in a few months again.
+         */
         private fun defaultModelFor(provider: AiProviderConfig): String =
             when {
-                provider.baseUrl.contains("groq", ignoreCase = true) -> "llama-3.2-90b-vision-preview"
-                provider.baseUrl.contains("openrouter", ignoreCase = true) -> "meta-llama/llama-3.2-90b-vision-instruct:free"
+                provider.baseUrl.contains("groq", ignoreCase = true) -> "qwen/qwen3.6-27b"
+                provider.baseUrl.contains("openrouter", ignoreCase = true) -> "openrouter/free"
                 provider.baseUrl.contains("cloudflare", ignoreCase = true) -> "@cf/meta/llama-3.2-11b-vision-instruct"
                 else -> "gpt-4o-mini"
             }

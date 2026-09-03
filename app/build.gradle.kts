@@ -83,7 +83,13 @@ android {
 
     defaultConfig {
         applicationId = "com.waheed.artificerx"
-        minSdk = 26
+        // Bumped from 26 -> 33: this is a personal, single-device app
+        // (Waheed's own Android 13 phone per his own answer), so there's
+        // no install-base reason to keep supporting API 26-32. API 33
+        // unlocks the themed-icon, per-app-language, and granular-media
+        // permission APIs the new screens below will want, without any
+        // backward-compat shims.
+        minSdk = 33
         // targetSdk intentionally stays one step behind compileSdk here:
         // compileSdk (compile against the newest APIs) and targetSdk
         // (opt in to that API level's *runtime behavior changes*) are
@@ -93,8 +99,8 @@ android {
         // against this app's own code, while still satisfying the
         // core-ktx 1.18.0 compileSdk requirement above.
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-mvp"
+        versionCode = 2
+        versionName = "0.4.30"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.waheed.artificerx.core.agent.AgentEvent
 import com.waheed.artificerx.core.agent.AgentOrchestrator
+import com.waheed.artificerx.core.export.ImageExporter
 import com.waheed.artificerx.core.network.ChatMessageDto
 import com.waheed.artificerx.data.repository.ProviderConfigRepository
 import com.waheed.artificerx.domain.model.AgentActivityState
@@ -56,6 +57,7 @@ class AgentChatViewModel
     constructor(
         private val providerConfigRepository: ProviderConfigRepository,
         private val agentOrchestrator: AgentOrchestrator,
+        private val imageExporter: ImageExporter,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(AgentChatUiState())
         val uiState: StateFlow<AgentChatUiState> = _uiState.asStateFlow()
@@ -229,7 +231,7 @@ class AgentChatViewModel
                 .lastOrNull { it.role == ChatMessageRole.AGENT }
                 ?.id
 
-        private fun applyAgentEvent(
+        private suspend fun applyAgentEvent(
             event: AgentEvent,
             agentMessageId: String,
             studioViewModel: StudioViewModel?,
@@ -293,8 +295,17 @@ class AgentChatViewModel
                 }
 
                 is AgentEvent.AgentTextChunk -> {
+                    // v0.4.30: text now arrives as real incremental deltas
+                    // (see AgentOrchestrator.streamCloudProvider), so
+                    // isStreaming stays true while chunks are still coming
+                    // in — TurnCompleted below is what actually closes it
+                    // out. Previously this flipped to false on the very
+                    // first (and only) chunk, which was fine when that
+                    // chunk WAS the whole reply, but no longer matches
+                    // reality now that a reply can arrive over dozens of
+                    // chunks.
                     updateAgentMessage(agentMessageId) { message ->
-                        message.copy(text = message.text + event.text, isStreaming = false)
+                        message.copy(text = message.text + event.text, isStreaming = true)
                     }
                 }
 
@@ -306,6 +317,29 @@ class AgentChatViewModel
                             text = if (message.text.isBlank()) event.summary else message.text,
                             isStreaming = false,
                         )
+                    }
+                    // Auto-save (v0.4.30): every completed AI turn that touched
+                    // the 2D canvas gets its result written straight to
+                    // Pictures/ARTIFICER-X automatically — the user should
+                    // never have to remember to hit Export to see or keep
+                    // what the agent just drew. Runs on a timestamped name so
+                    // repeated turns never overwrite each other. Failures are
+                    // surfaced (not swallowed) but never block the chat UI.
+                    if (studioViewModel != null) {
+                        val snapshot = studioViewModel.captureSnapshotNow()
+                        val timestamp =
+                            java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US)
+                                .format(java.util.Date())
+                        when (val result = imageExporter.exportPng(snapshot, "ArtificerX_AI_$timestamp")) {
+                            is com.waheed.artificerx.core.export.ExportResult.Success ->
+                                updateAgentMessage(agentMessageId) { message ->
+                                    message.copy(autoSavedFileName = result.displayName, autoSavedUri = result.uri)
+                                }
+                            is com.waheed.artificerx.core.export.ExportResult.Failure ->
+                                _uiState.update {
+                                    it.copy(lastErrorMessage = "AI output auto-save failed: ${result.message}")
+                                }
+                        }
                     }
                 }
 

@@ -29,4 +29,10 @@ data class ChatMessage(
     val timestampEpochMillis: Long = System.currentTimeMillis(),
     val isStreaming: Boolean = false,
     val attachedImageUri: String? = null,
+    // v0.4.30: set once this turn's canvas output has been auto-saved to
+    // Pictures/ARTIFICER-X, so AgentChatScreen can render a "Saved as X /
+    // View / Share" affordance directly on the bubble instead of the user
+    // having to go find it in a gallery app on their own.
+    val autoSavedFileName: String? = null,
+    val autoSavedUri: android.net.Uri? = null,
 )

@@ -58,6 +58,37 @@ class LayerBitmapStore
                 bitmap
             }
 
+        /** v0.4.30 resize_canvas tool backing: replaces every given
+         *  layer's bitmap with a new-dimension one, drawing the old
+         *  content anchored at (0,0) — this naturally crops content that
+         *  falls outside the new bounds and pads with transparency where
+         *  the new canvas is larger, rather than rescaling pixels (see
+         *  ResizeCanvas tool doc in ToolRegistry for why crop/pad and not
+         *  rescale is the correct default here). Clears the undo/redo
+         *  stacks: their snapshots are old-dimension bitmaps that can no
+         *  longer be validly restored into the new canvas size, and
+         *  silently keeping them around would corrupt the very next undo
+         *  rather than fail loudly. */
+        fun resizeAllLayers(
+            layerIds: List<String>,
+            newWidthPx: Int,
+            newHeightPx: Int,
+        ) {
+            layerIds.forEach { layerId ->
+                val old = bitmaps[layerId]
+                val resized = Bitmap.createBitmap(newWidthPx, newHeightPx, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(resized)
+                if (old != null) {
+                    canvas.drawBitmap(old, 0f, 0f, null)
+                    old.recycle()
+                }
+                bitmaps[layerId] = resized
+                canvases[layerId] = canvas
+            }
+            undoStack.clear()
+            redoStack.clear()
+        }
+
         /** Call BEFORE any pixel-mutating operation (drawPath, drawShape,
          *  fillRegion, applyFilter, etc.) so that state can be restored by
          *  [undo]. Snapshots every current layer bitmap — cheap relative
@@ -193,6 +224,52 @@ class LayerBitmapStore
             bitmaps[layerId]?.recycle()
             bitmaps[layerId] = destination
             canvases[layerId] = destCanvas
+            return true
+        }
+
+        /** v0.4.30 Transform tool: applies an incremental Matrix transform
+         *  (translate + uniform scale + rotate about a pivot) directly to
+         *  a layer's bitmap in place — mirrors [flipLayer]'s
+         *  createBitmap(source, matrix, filter=true) approach so transform
+         *  quality matches the existing flip operation. Called once per
+         *  gesture-update frame from StudioViewModel.transformActiveLayer
+         *  with that frame's small delta (not the total drag), so the
+         *  user sees the layer move/scale/rotate live under their finger
+         *  rather than only snapping into place on release. */
+        fun transformLayer(
+            layerId: String,
+            translateX: Float,
+            translateY: Float,
+            scaleFactor: Float,
+            rotationDegrees: Float,
+            pivotX: Float,
+            pivotY: Float,
+        ): Boolean {
+            val source = bitmaps[layerId] ?: return false
+            val matrix =
+                android.graphics.Matrix().apply {
+                    postTranslate(translateX, translateY)
+                    postScale(scaleFactor, scaleFactor, pivotX + translateX, pivotY + translateY)
+                    postRotate(rotationDegrees, pivotX + translateX, pivotY + translateY)
+                }
+            // Draw through a same-size scratch bitmap via Canvas.drawBitmap(
+            // source, matrix, paint) rather than Bitmap.createBitmap(source,
+            // ..., matrix, true) — the latter auto-crops/expands its output
+            // to the transformed content's bounding box, which for any
+            // rotation no longer matches the original canvas's coordinate
+            // space and would visibly shift the layer on every rotate.
+            // Compositing through a fixed-size scratch keeps the layer
+            // anchored to the same canvas bounds the rest of the app
+            // assumes everywhere else.
+            val scratch = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+            val scratchCanvas = Canvas(scratch)
+            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+            scratchCanvas.drawBitmap(source, matrix, paint)
+
+            val canvas = canvases[layerId] ?: return false
+            canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+            canvas.drawBitmap(scratch, 0f, 0f, null)
+            scratch.recycle()
             return true
         }
 

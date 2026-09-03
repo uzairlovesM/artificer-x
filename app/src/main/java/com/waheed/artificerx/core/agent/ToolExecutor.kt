@@ -99,6 +99,7 @@ class ToolExecutor
                 is ParsedToolCall.DrawCurve,
                 is ParsedToolCall.ImportImageLayer,
                 is ParsedToolCall.DeleteLayer,
+                is ParsedToolCall.SetCanvasBackground,
                 -> true
                 else -> false
             }
@@ -112,7 +113,7 @@ class ToolExecutor
                 bitmapStore.pushUndoSnapshot()
             }
 
-            return when (parsedCall) {
+            val result = when (parsedCall) {
                 is ParsedToolCall.CreateLayer -> {
                     viewModel.addLayer()
                     val newState = viewModel.state.value
@@ -170,9 +171,10 @@ class ToolExecutor
                             if (compositor.drawPath(
                                     activeLayerId,
                                     variant,
-                                    parsedCall.colorHex,
-                                    parsedCall.strokeWidthPx,
-                                    parsedCall.opacity,
+                                    parsedCall.colorHex ?: currentState.toolState.brushColorHex,
+                                    parsedCall.strokeWidthPx ?: currentState.toolState.brushSizePx,
+                                    parsedCall.opacity ?: currentState.toolState.brushOpacity,
+                                    brushType = parsedCall.brushType ?: currentState.toolState.brushType,
                                 )
                             ) {
                                 anySuccess = true
@@ -436,6 +438,11 @@ class ToolExecutor
                             "horizontal" -> com.waheed.artificerx.domain.model.SymmetryMode.HORIZONTAL
                             "radial_4" -> com.waheed.artificerx.domain.model.SymmetryMode.RADIAL_4
                             "radial_8" -> com.waheed.artificerx.domain.model.SymmetryMode.RADIAL_8
+                            "radial_12" -> com.waheed.artificerx.domain.model.SymmetryMode.RADIAL_12
+                            "radial_16" -> com.waheed.artificerx.domain.model.SymmetryMode.RADIAL_16
+                            "kaleidoscope_6" -> com.waheed.artificerx.domain.model.SymmetryMode.KALEIDOSCOPE_6
+                            "kaleidoscope_12" -> com.waheed.artificerx.domain.model.SymmetryMode.KALEIDOSCOPE_12
+                            "mandala_24" -> com.waheed.artificerx.domain.model.SymmetryMode.MANDALA_24
                             else -> com.waheed.artificerx.domain.model.SymmetryMode.OFF
                         }
                     viewModel.setSymmetryMode(mode)
@@ -579,11 +586,112 @@ class ToolExecutor
                         "Internal error: web_fetch reached ToolExecutor directly instead of being handled by AgentOrchestrator.",
                     )
 
+                is ParsedToolCall.WebSearch ->
+                    ToolExecutionResult.Failure(
+                        "Internal error: web_search reached ToolExecutor directly instead of being handled by AgentOrchestrator.",
+                    )
+
+                // v0.4.30: full project/canvas customization access.
+                is ParsedToolCall.ResizeCanvas -> {
+                    if (parsedCall.widthPx <= 0 || parsedCall.heightPx <= 0) {
+                        ToolExecutionResult.Failure("resize_canvas requires positive width_px and height_px.")
+                    } else if (parsedCall.widthPx > 8000 || parsedCall.heightPx > 8000) {
+                        ToolExecutionResult.Failure(
+                            "resize_canvas rejected ${parsedCall.widthPx}x${parsedCall.heightPx} — 8000px per side is the " +
+                                "safe ceiling for this device's memory; pick a smaller size.",
+                        )
+                    } else {
+                        viewModel.resizeCanvas(parsedCall.widthPx, parsedCall.heightPx)
+                        ToolExecutionResult.Success(
+                            "Canvas resized to ${parsedCall.widthPx}x${parsedCall.heightPx}px.",
+                            requiresSnapshot = true,
+                        )
+                    }
+                }
+
+                is ParsedToolCall.SetCanvasBackground -> {
+                    viewModel.setCanvasBackground(parsedCall.colorHex)
+                    ToolExecutionResult.Success("Canvas background set to ${parsedCall.colorHex}.", requiresSnapshot = true)
+                }
+
+                is ParsedToolCall.SetBrushDefaults -> {
+                    viewModel.setBrushDefaults(
+                        brushType = parsedCall.brushType,
+                        sizePx = parsedCall.sizePx,
+                        colorHex = parsedCall.colorHex,
+                        opacity = parsedCall.opacity,
+                        hardness = parsedCall.hardness,
+                    )
+                    ToolExecutionResult.Success("Brush defaults updated.", requiresSnapshot = false)
+                }
+
+                is ParsedToolCall.SetSelection -> {
+                    viewModel.setSelection(
+                        com.waheed.artificerx.domain.model.SelectionRect(
+                            parsedCall.left,
+                            parsedCall.top,
+                            parsedCall.right,
+                            parsedCall.bottom,
+                        ),
+                    )
+                    ToolExecutionResult.Success(
+                        "Selection set to (${parsedCall.left},${parsedCall.top})-(${parsedCall.right},${parsedCall.bottom}).",
+                        requiresSnapshot = false,
+                    )
+                }
+
+                is ParsedToolCall.ClearSelection -> {
+                    viewModel.setSelection(null)
+                    ToolExecutionResult.Success("Selection cleared.", requiresSnapshot = false)
+                }
+
+                is ParsedToolCall.DeleteSelectionContent -> {
+                    if (currentState.selection == null) {
+                        ToolExecutionResult.Failure("delete_selection_content requires set_selection to be called first.")
+                    } else {
+                        viewModel.clearSelectionContent()
+                        ToolExecutionResult.Success("Deleted pixel content inside the selection.", requiresSnapshot = true)
+                    }
+                }
+
+                is ParsedToolCall.TransformLayer -> {
+                    if (currentState.activeLayerId == null) {
+                        ToolExecutionResult.Failure("No active layer to transform. Call create_layer or set_active_layer first.")
+                    } else {
+                        viewModel.beginTransformGesture()
+                        viewModel.transformActiveLayer(
+                            dx = parsedCall.dx,
+                            dy = parsedCall.dy,
+                            scaleFactor = parsedCall.scaleFactor,
+                            rotationDegrees = parsedCall.rotationDegrees,
+                            pivotX = parsedCall.pivotX ?: (currentState.canvasWidthPx / 2f),
+                            pivotY = parsedCall.pivotY ?: (currentState.canvasHeightPx / 2f),
+                        )
+                        ToolExecutionResult.Success(
+                            "Transformed active layer (dx=${parsedCall.dx}, dy=${parsedCall.dy}, " +
+                                "scale=${parsedCall.scaleFactor}, rotation=${parsedCall.rotationDegrees}°).",
+                            requiresSnapshot = true,
+                        )
+                    }
+                }
+
                 is ParsedToolCall.Unknown ->
                     ToolExecutionResult.Failure(
                         "Unknown tool '${parsedCall.toolName}'. Available tools: ${ToolRegistry.ALL_TOOLS.map { it.function.name }}",
                     )
             }
+
+            // CRITICAL FIX (v0.4.30): every pixel-mutating branch above writes
+            // straight into bitmapStore/compositor and never told
+            // StudioViewModel's StateFlow to refresh — the AI's drawing
+            // succeeded on the backing bitmap but Compose never recomposed,
+            // so nothing ever appeared on screen. This is the one call that
+            // makes AI-generated output actually visible.
+            if (mutatesPixels(parsedCall) && result is ToolExecutionResult.Success) {
+                viewModel.recomposite()
+            }
+
+            return result
         }
 
         /** Section symmetry tool: generates mirrored point-array variants
@@ -630,6 +738,31 @@ class ToolExecutor
                 com.waheed.artificerx.domain.model.SymmetryMode.HORIZONTAL -> listOf(points, mirrorHorizontal(points))
                 com.waheed.artificerx.domain.model.SymmetryMode.RADIAL_4 -> listOf(0.0, 90.0, 180.0, 270.0).map { rotateAround(points, it) }
                 com.waheed.artificerx.domain.model.SymmetryMode.RADIAL_8 -> (0 until 8).map { rotateAround(points, it * 45.0) }
+                // v0.4.30: denser radial fans, requested for mandala/pattern work.
+                com.waheed.artificerx.domain.model.SymmetryMode.RADIAL_12 -> (0 until 12).map { rotateAround(points, it * 30.0) }
+                com.waheed.artificerx.domain.model.SymmetryMode.RADIAL_16 -> (0 until 16).map { rotateAround(points, it * 22.5) }
+                // v0.4.30: true kaleidoscope = rotation *and* a mirror at each
+                // step, so each wedge is a reflected copy of its neighbor
+                // (what makes a kaleidoscope look like one, vs. a plain
+                // radial fan which just repeats the same orientation).
+                com.waheed.artificerx.domain.model.SymmetryMode.KALEIDOSCOPE_6 ->
+                    (0 until 6).flatMap { step ->
+                        val rotated = rotateAround(points, step * 60.0)
+                        listOf(rotated, mirrorVertical(rotated))
+                    }
+                com.waheed.artificerx.domain.model.SymmetryMode.KALEIDOSCOPE_12 ->
+                    (0 until 12).flatMap { step ->
+                        val rotated = rotateAround(points, step * 30.0)
+                        listOf(rotated, mirrorVertical(rotated))
+                    }
+                // v0.4.30: MANDALA_24 = 24-way radial fan + mirror per step
+                // (48 total copies) for the dense, flower-like repetition
+                // mandala work actually wants, denser than a plain radial.
+                com.waheed.artificerx.domain.model.SymmetryMode.MANDALA_24 ->
+                    (0 until 24).flatMap { step ->
+                        val rotated = rotateAround(points, step * 15.0)
+                        listOf(rotated, mirrorVertical(rotated))
+                    }
                 com.waheed.artificerx.domain.model.SymmetryMode.OFF -> listOf(points)
             }
         }

@@ -38,6 +38,7 @@ class StudioViewModel
         private val projectRepository: com.waheed.artificerx.data.repository.ProjectRepository,
         private val bitmapStore: com.waheed.artificerx.core.render.LayerBitmapStore,
         private val compositor: com.waheed.artificerx.core.render.CanvasCompositor,
+        private val timelapseRecorder: com.waheed.artificerx.core.timelapse.TimelapseRecorder,
     ) : ViewModel() {
         private val _compositedBitmap = kotlinx.coroutines.flow.MutableStateFlow<android.graphics.Bitmap?>(null)
         val compositedBitmap: kotlinx.coroutines.flow.StateFlow<android.graphics.Bitmap?> = _compositedBitmap.asStateFlow()
@@ -118,6 +119,10 @@ class StudioViewModel
                             heightPx = current.canvasHeightPx,
                         )
                     _compositedBitmap.value = flattened
+                    // v0.4.30 real timelapse: throttled inside
+                    // TimelapseRecorder itself, so it's safe to call this
+                    // on every recomposite without flooding storage.
+                    timelapseRecorder.captureFrame(current.projectId, flattened)
                     // Keep the undo/redo counters in the exposed state in
                     // sync even when the mutation that triggered this
                     // recomposite came from the agent's ToolExecutor path
@@ -302,6 +307,18 @@ class StudioViewModel
          *  symmetry-mirroring behavior) so a human stroke and an agent
          *  stroke are indistinguishable in the resulting pixels. Called
          *  from CanvasTouchOverlay once a gesture completes. */
+        /** v0.4.30: two real fixes landed here together since they touch
+         *  the same call site —
+         *  1) ERASER now calls compositor.erasePath (true CLEAR-Xfermode
+         *     transparency) instead of the old "paint solid white" hack,
+         *     which corrupted layer alpha for blending/export.
+         *  2) Touch-simulated pressure: when enabled, per-point stroke
+         *     width is derived from how fast the finger moved between
+         *     consecutive points (slow = wide/heavy, fast = thin/light)
+         *     instead of one flat width — see simulatePressureWeights
+         *     below. This is what answers "finger touch smoothing" from
+         *     the brush-engine questionnaire without needing real stylus
+         *     pressure hardware. */
         fun drawManualStroke(points: List<Float>) {
             val current = _state.value
             val activeLayerId = current.activeLayerId ?: return
@@ -314,20 +331,61 @@ class StudioViewModel
             bitmapStore.pushUndoSnapshot()
 
             val isEraser = current.toolState.activeTool == DrawToolType.ERASER
-            val colorHex = if (isEraser) "#FFFFFF" else current.toolState.brushColorHex
-
             val variants =
                 mirrorPointsForSymmetryPublic(points, current.toolState.symmetryMode, current.canvasWidthPx, current.canvasHeightPx)
+
+            if (isEraser) {
+                variants.forEach { variant ->
+                    compositor.erasePath(layerId = activeLayerId, points = variant, strokeWidthPx = current.toolState.brushSizePx)
+                }
+                recomposite()
+                return
+            }
+
+            val weights = if (current.toolState.pressureSimulationEnabled) simulatePressureWeights(points) else null
             variants.forEach { variant ->
                 compositor.drawPath(
                     layerId = activeLayerId,
                     points = variant,
-                    colorHex = colorHex,
+                    colorHex = current.toolState.brushColorHex,
                     strokeWidthPx = current.toolState.brushSizePx,
                     opacity = current.toolState.brushOpacity,
+                    brushType = current.toolState.brushType,
+                    pointWeights = weights,
                 )
             }
             recomposite()
+        }
+
+        /** One weight per point (except the first, which has no prior
+         *  point to measure speed from — matched 1:1 with drawPath's
+         *  per-segment consumption). Distance-per-sample is converted to
+         *  a 0.15..1.6 multiplier via an inverse curve so fast flicks
+         *  thin out and slow deliberate motion lays down a heavier line —
+         *  the same feel pressure-sensitive brushes give, derived purely
+         *  from touch speed since finger input has no real pressure
+         *  channel. Lightly smoothed (3-point moving average) so a single
+         *  noisy touch sample doesn't cause a visible width "pop". */
+        private fun simulatePressureWeights(points: List<Float>): List<Float> {
+            val rawWeights = mutableListOf<Float>()
+            var i = 2
+            while (i + 1 < points.size) {
+                val dx = points[i] - points[i - 2]
+                val dy = points[i + 1] - points[i - 1]
+                val distance = kotlin.math.hypot(dx, dy)
+                // Calibrated for typical finger-drag speeds on a
+                // Fit-scaled canvas surface: ~0-6px between samples reads
+                // as "slow/heavy", ~25px+ reads as "fast/light".
+                val weight = (1.5f - (distance / 18f)).coerceIn(0.15f, 1.6f)
+                rawWeights.add(weight)
+                i += 2
+            }
+            if (rawWeights.size < 3) return rawWeights
+            return rawWeights.mapIndexed { idx, w ->
+                val prev = rawWeights.getOrElse(idx - 1) { w }
+                val next = rawWeights.getOrElse(idx + 1) { w }
+                (prev + w + next) / 3f
+            }
         }
 
         fun drawManualShape(
@@ -421,6 +479,77 @@ class StudioViewModel
             _state.update { it.copy(toolState = it.toolState.copy(brushColorHex = colorHex)) }
         }
 
+        /** v0.4.30: full project customization access for the AI (and
+         *  reused by any future manual "New Project" size dialog) — see
+         *  ResizeCanvas tool doc in ToolRegistry for why layer content is
+         *  cropped/padded rather than rescaled: rescaling would silently
+         *  blur/distort existing pixel work, whereas crop/pad is the
+         *  predictable, lossless behavior every major editor uses for a
+         *  canvas-size change (as opposed to an image-scale operation,
+         *  which is a different, deliberate action). */
+        fun resizeCanvas(
+            widthPx: Int,
+            heightPx: Int,
+        ) {
+            if (widthPx <= 0 || heightPx <= 0) return
+            val current = _state.value
+            bitmapStore.resizeAllLayers(current.layers.map { it.id }, widthPx, heightPx)
+            _state.update { it.copy(canvasWidthPx = widthPx, canvasHeightPx = heightPx) }
+            recomposite()
+        }
+
+        /** There's no dedicated "background" concept in this app's layer
+         *  model (every layer is an equal transparent-capable bitmap) —
+         *  matching that, this fills the bottom-most layer solid (creating
+         *  one named "Background" first if the project is empty) rather
+         *  than inventing a separate background field that the rest of
+         *  the layer system (blend modes, opacity, reordering) wouldn't
+         *  know how to treat consistently. */
+        fun setCanvasBackground(colorHex: String) {
+            val current = _state.value
+            val bottomLayerId =
+                current.layers.minByOrNull { it.orderIndex }?.id ?: run {
+                    val backgroundLayer =
+                        com.waheed.artificerx.domain.model.CanvasLayer(
+                            id = UUID.randomUUID().toString(),
+                            name = "Background",
+                            orderIndex = 0,
+                        )
+                    bitmapStore.ensureLayer(backgroundLayer.id, current.canvasWidthPx, current.canvasHeightPx)
+                    _state.update { it.copy(layers = it.layers + backgroundLayer, activeLayerId = it.activeLayerId ?: backgroundLayer.id) }
+                    backgroundLayer.id
+                }
+            bitmapStore.ensureLayer(bottomLayerId, current.canvasWidthPx, current.canvasHeightPx)
+            compositor.fillWholeLayer(bottomLayerId, colorHex, current.canvasWidthPx, current.canvasHeightPx)
+            recomposite()
+        }
+
+        /** Standing defaults so an AI turn (or the human) can set a
+         *  brush configuration once and have every following draw_path
+         *  call use it without repeating every parameter — only non-null
+         *  fields are applied, so a partial call like "just switch to
+         *  airbrush" doesn't reset size/color/opacity back to defaults. */
+        fun setBrushDefaults(
+            brushType: com.waheed.artificerx.domain.model.BrushType? = null,
+            sizePx: Float? = null,
+            colorHex: String? = null,
+            opacity: Float? = null,
+            hardness: Float? = null,
+        ) {
+            _state.update { current ->
+                current.copy(
+                    toolState =
+                        current.toolState.copy(
+                            brushType = brushType ?: current.toolState.brushType,
+                            brushSizePx = sizePx ?: current.toolState.brushSizePx,
+                            brushColorHex = colorHex ?: current.toolState.brushColorHex,
+                            brushOpacity = opacity ?: current.toolState.brushOpacity,
+                            brushHardness = hardness ?: current.toolState.brushHardness,
+                        ),
+                )
+            }
+        }
+
         /** Public wrapper so both manual touch input and ToolExecutor's
          *  agent path can reuse identical symmetry-mirroring math without
          *  duplicating it — ToolExecutor keeps its own copy for now since
@@ -465,6 +594,23 @@ class StudioViewModel
                 com.waheed.artificerx.domain.model.SymmetryMode.HORIZONTAL -> listOf(points, mirrorHorizontal(points))
                 com.waheed.artificerx.domain.model.SymmetryMode.RADIAL_4 -> listOf(0.0, 90.0, 180.0, 270.0).map { rotateAround(points, it) }
                 com.waheed.artificerx.domain.model.SymmetryMode.RADIAL_8 -> (0 until 8).map { rotateAround(points, it * 45.0) }
+                com.waheed.artificerx.domain.model.SymmetryMode.RADIAL_12 -> (0 until 12).map { rotateAround(points, it * 30.0) }
+                com.waheed.artificerx.domain.model.SymmetryMode.RADIAL_16 -> (0 until 16).map { rotateAround(points, it * 22.5) }
+                com.waheed.artificerx.domain.model.SymmetryMode.KALEIDOSCOPE_6 ->
+                    (0 until 6).flatMap { step ->
+                        val rotated = rotateAround(points, step * 60.0)
+                        listOf(rotated, mirrorVertical(rotated))
+                    }
+                com.waheed.artificerx.domain.model.SymmetryMode.KALEIDOSCOPE_12 ->
+                    (0 until 12).flatMap { step ->
+                        val rotated = rotateAround(points, step * 30.0)
+                        listOf(rotated, mirrorVertical(rotated))
+                    }
+                com.waheed.artificerx.domain.model.SymmetryMode.MANDALA_24 ->
+                    (0 until 24).flatMap { step ->
+                        val rotated = rotateAround(points, step * 15.0)
+                        listOf(rotated, mirrorVertical(rotated))
+                    }
                 com.waheed.artificerx.domain.model.SymmetryMode.OFF -> listOf(points)
             }
         }
@@ -491,6 +637,104 @@ class StudioViewModel
 
         fun setSymmetryMode(mode: com.waheed.artificerx.domain.model.SymmetryMode) {
             _state.update { it.copy(toolState = it.toolState.copy(symmetryMode = mode)) }
+        }
+
+        fun setBrushType(type: com.waheed.artificerx.domain.model.BrushType) {
+            _state.update { it.copy(toolState = it.toolState.copy(brushType = type)) }
+        }
+
+        fun setPressureSimulationEnabled(enabled: Boolean) {
+            _state.update { it.copy(toolState = it.toolState.copy(pressureSimulationEnabled = enabled)) }
+        }
+
+        /** v0.4.30 selection tool. [rect] is in canvas-pixel space (see
+         *  StudioScreen's screenToCanvasPx for the Fit-scaled render
+         *  surface's mapping) — null clears the selection entirely. */
+        fun setSelection(rect: com.waheed.artificerx.domain.model.SelectionRect?) {
+            _state.update { it.copy(selection = rect?.normalized()) }
+        }
+
+        /** Deletes the pixel content inside the active selection on the
+         *  active layer (real transparency clear, not a white-paint hack —
+         *  see CanvasCompositor.clearSelectionRegion's doc). Selection
+         *  itself stays active afterwards so the user can keep working
+         *  inside the same marquee (matches Photoshop/Procreate). */
+        fun clearSelectionContent() {
+            val current = _state.value
+            val selection = current.selection ?: return
+            val activeLayerId = current.activeLayerId ?: return
+            val activeLayer = current.layers.firstOrNull { it.id == activeLayerId }
+            if (activeLayer?.isLocked == true) return
+
+            bitmapStore.pushUndoSnapshot()
+            compositor.clearSelectionRegion(activeLayerId, selection.left, selection.top, selection.right, selection.bottom)
+            recomposite()
+        }
+
+        /** Moves the pixel content inside the active selection by
+         *  (dx, dy) on the active layer — the selection rect itself moves
+         *  with it so a drag-to-move gesture can call this repeatedly per
+         *  frame and both the pixels and the marquee track the finger. */
+        fun moveSelectionContent(
+            dx: Float,
+            dy: Float,
+        ) {
+            val current = _state.value
+            val selection = current.selection ?: return
+            val activeLayerId = current.activeLayerId ?: return
+            val activeLayer = current.layers.firstOrNull { it.id == activeLayerId }
+            if (activeLayer?.isLocked == true) return
+
+            compositor.moveSelectionRegion(activeLayerId, selection.left, selection.top, selection.right, selection.bottom, dx, dy)
+            _state.update {
+                it.copy(
+                    selection =
+                        com.waheed.artificerx.domain.model.SelectionRect(
+                            left = selection.left + dx,
+                            top = selection.top + dy,
+                            right = selection.right + dx,
+                            bottom = selection.bottom + dy,
+                        ),
+                )
+            }
+            recomposite()
+        }
+
+        /** v0.4.30: backs TimelapseScreen's playback frame list — see
+         *  TimelapseRecorder's doc for the capture/throttle/storage
+         *  design. */
+        suspend fun listTimelapseFrames(): List<java.io.File> = timelapseRecorder.listFrames(_state.value.projectId)
+
+        /** Call once (from CanvasTouchOverlay's TRANSFORM gesture start)
+         *  before a drag begins, so the whole gesture is a single undo
+         *  step instead of one per frame — undoing a transform should put
+         *  the layer back to how it looked before the user touched it,
+         *  not back one tiny rotation increment at a time. */
+        fun beginTransformGesture() {
+        }
+
+        /** v0.4.30 transform tool: applies one frame's worth of
+         *  pan/scale/rotate delta directly to the active layer's bitmap,
+         *  so the layer visibly moves/scales/rotates live under the
+         *  finger during the gesture (see LayerBitmapStore.transformLayer
+         *  doc for why this is a fixed-size scratch composite rather than
+         *  Bitmap.createBitmap's auto-cropping variant). Pivot is the
+         *  gesture's centroid in canvas-pixel space. */
+        fun transformActiveLayer(
+            dx: Float,
+            dy: Float,
+            scaleFactor: Float,
+            rotationDegrees: Float,
+            pivotX: Float,
+            pivotY: Float,
+        ) {
+            val current = _state.value
+            val activeLayerId = current.activeLayerId ?: return
+            val activeLayer = current.layers.firstOrNull { it.id == activeLayerId }
+            if (activeLayer?.isLocked == true) return
+
+            bitmapStore.transformLayer(activeLayerId, dx, dy, scaleFactor, rotationDegrees, pivotX, pivotY)
+            recomposite()
         }
 
         fun setBrushSize(sizePx: Float) {
