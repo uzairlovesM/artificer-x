@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -91,7 +92,7 @@ val LocalArtificerXExtendedColors = staticCompositionLocalOf { ArtificerXExtende
 object ArtificerXGradients {
     val backgroundWash =
         Brush.verticalGradient(
-            colors = listOf(PurpleBase00, Color(0xFF120820), PurpleBase00),
+            colors = listOf(PurpleBase00, Color(0xFF171512), PurpleBase00),
         )
 
     val heroGoldPurple =
@@ -115,13 +116,28 @@ object ArtificerXGradients {
         )
 }
 
+private val ArtificerXLightColorScheme = lightColorScheme(
+    primary = Color(0xFF6C4A00),
+    onPrimary = Color.White,
+    secondary = Color(0xFF6B3AAE),
+    background = Color(0xFFF6F2EC),
+    onBackground = Color(0xFF1F1D1A),
+    surface = Color(0xFFFCFAF7),
+    onSurface = Color(0xFF1F1D1A),
+    surfaceVariant = Color(0xFFECE6DE),
+    onSurfaceVariant = Color(0xFF5E5865),
+)
+
 @Composable
-fun ArtificerXTheme(content: @Composable () -> Unit) {
+fun ArtificerXTheme(
+    darkTheme: Boolean = true,
+    content: @Composable () -> Unit,
+) {
     CompositionLocalProvider(
         LocalArtificerXExtendedColors provides ArtificerXExtendedColors(),
     ) {
         MaterialTheme(
-            colorScheme = ArtificerXDarkColorScheme,
+            colorScheme = if (darkTheme) ArtificerXDarkColorScheme else ArtificerXLightColorScheme,
             typography = ArtificerXTypography,
             shapes = ArtificerXShapes,
             content = content,
@@ -141,7 +157,7 @@ object ArtificerXTheme2 {
  * panel matching the brand's glass-card language (Section 111's Studio
  * screen panels, tool palettes, chat bubbles). Real Compose blur
  * (Modifier.blur) requires API 31+ — a solid-tint fallback keeps the
- * layered translucent look on API 26-30 devices (min SDK 26 per stack
+ * layered translucent look on older devices (min SDK 26 per stack
  * config) instead of an unsupported blur crashing or silently no-op'ing.
  */
 fun Modifier.glassSurface(

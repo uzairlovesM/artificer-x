@@ -43,7 +43,7 @@ ksp = "2.3.10"
 # actually requires, closes that gap from both directions.
 coreKtx = "1.18.0"
 lifecycle = "2.8.7"
-activityCompose = "1.9.3"
+activityCompose = "1.13.0"
 splashscreen = "1.0.1"
 palette = "1.0.0"
 exifinterface = "1.3.7"
@@ -64,20 +64,10 @@ browser = "1.8.0"
 androidxPreference = "1.2.1"
 
 # ── Compose ──
-# BOM bumped from 2024.12.01 to 2025.08.00 (Compose 1.9 line) —
-# verified this specific BOM introduces no compileSdk/AGP-version
-# requirement beyond what this project already has (compileSdk 36,
-# AGP 8.13.2); the later 2026.04.01 BOM (Compose 1.11) would also fit
-# under that same compileSdk 36 ceiling, but was deliberately NOT
-# taken in this same change — jumping five BOM releases at once bundles
-# too many simultaneous library-internal changes (in particular
-# Compose 1.10+'s default switch from UnconfinedTestDispatcher to
-# StandardTestDispatcher in the v2 testing APIs, which can silently
-# change existing Compose UI test timing/flakiness) to responsibly
-# verify without a live build in this environment. A further bump
-# toward 2026.04.01 should happen as its own isolated, testable change.
-composeBom = "2025.08.00"
-navigationCompose = "2.8.5"
+# Compose BOM 2026.04.01 maps to the stable Compose 1.11 release line.
+# This is the current verified April 2026 BOM selected for this build.
+composeBom = "2026.04.01"
+navigationCompose = "2.9.8"
 
 # ── DI ──
 # Hilt bumped 2.52 -> 2.58. Root cause of the CI failure "The KSP
@@ -106,7 +96,7 @@ hiltWork = "1.2.0"
 
 # ── Persistence ──
 room = "2.7.1"
-datastore = "1.1.1"
+datastore = "1.2.1"
 sqlcipher = "4.5.6"
 
 # ── Networking ──
@@ -139,8 +129,8 @@ jsoup = "1.18.1"
 readability4j = "1.0.8"
 
 # ── Camera / media capture ──
-cameraX = "1.5.1"
-media3 = "1.11.0"
+cameraX = "1.6.2"
+media3 = "1.10.1"
 
 # ── Maps / location ──
 playServicesLocation = "21.3.0"
@@ -172,6 +162,8 @@ androidSvg = "1.4"
 colorpickerCompose = "1.1.2"
 lottie = "6.6.2"
 zoomable = "2.6.0"
+graphicsPath = "1.1.0"
+graphicsShapes = "1.1.0"
 # Additional painting/drawing engine support — Section:
 # Painting/drawing. androidx.ink is Google's own Jetpack library for
 # low-latency stylus/finger inking (pressure, tilt, orientation-aware
@@ -183,7 +175,7 @@ zoomable = "2.6.0"
 inkAuthoring = "1.1.0-alpha07"
 
 # ── Background work / security ──
-workManager = "2.10.0"
+workManager = "2.11.2"
 securityCrypto = "1.1.0-alpha06"
 biometric = "1.2.0-alpha05"
 
@@ -307,6 +299,8 @@ androidx-activity-compose = { group = "androidx.activity", name = "activity-comp
 androidx-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "splashscreen" }
 androidx-palette = { group = "androidx.palette", name = "palette-ktx", version.ref = "palette" }
 androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
+androidx-graphics-path = { group = "androidx.graphics", name = "graphics-path", version.ref = "graphicsPath" }
+androidx-graphics-shapes = { group = "androidx.graphics", name = "graphics-shapes", version.ref = "graphicsShapes" }
 androidx-biometric = { group = "androidx.biometric", name = "biometric-ktx", version.ref = "biometric" }
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 
@@ -516,7 +510,7 @@ camerax = [
     "camerax-video",
     "camerax-extensions",
 ]
-media3 = ["media3-exoplayer", "media3-ui", "media3-session", "media3-common"]
+media3 = ["media3-exoplayer", "media3-ui", "media3-session", "media3-common", "media3-transformer"]
 ink-drawing = [
     "ink-authoring",
     "ink-authoring-compose",

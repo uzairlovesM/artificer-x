@@ -5,6 +5,7 @@ import com.waheed.artificerx.core.render.LayerBitmapStore
 import com.waheed.artificerx.ui.screens.canvas.StudioViewModel
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.first
 
 /**
  * Executes a ParsedToolCall against the live StudioViewModel state
@@ -20,6 +21,14 @@ class ToolExecutor
         private val compositor: CanvasCompositor,
         private val bitmapStore: LayerBitmapStore,
         private val sculptToolExecutor: com.waheed.artificerx.core.mesh.SculptToolExecutor,
+        private val artifactStore: com.waheed.artificerx.core.artifact.ArtifactStore,
+        private val terminalSandbox: com.waheed.artificerx.core.terminal.TerminalSandbox,
+        private val imageGenerationService: com.waheed.artificerx.core.image.ImageGenerationService,
+        private val memoryRepository: com.waheed.artificerx.data.workspace.MemoryRepository,
+        private val workspaceRepository: com.waheed.artificerx.data.repository.ChatWorkspaceRepository,
+        private val workspaceSearch: com.waheed.artificerx.core.search.WorkspaceSearch,
+        private val workspaceBundleService: com.waheed.artificerx.core.importexport.WorkspaceBundleService,
+        private val workspaceFileTools: com.waheed.artificerx.core.storage.WorkspaceFileTools,
     ) {
         /** Used when the agent is operating purely in 3D Sculpt mode with
          *  no active 2D Studio session — routes only sculpt/mesh-family
@@ -56,6 +65,23 @@ class ToolExecutor
                     )
                 is ParsedToolCall.InspectScene -> sculptToolExecutor.inspectScene()
                 is ParsedToolCall.FinishTurn -> ToolExecutionResult.TurnFinished(parsedCall.summary)
+                is ParsedToolCall.ReadWorkspaceFile,
+                is ParsedToolCall.WriteWorkspaceFile,
+                is ParsedToolCall.ListWorkspaceDirectory,
+                is ParsedToolCall.ReplaceWorkspaceText,
+                is ParsedToolCall.GenerateImage,
+                is ParsedToolCall.Remember,
+                is ParsedToolCall.Recall,
+                is ParsedToolCall.CreateFile,
+                is ParsedToolCall.CreateZip,
+                is ParsedToolCall.RunTerminalCommand,
+                is ParsedToolCall.RunTerminalBatch,
+                is ParsedToolCall.ListArtifacts,
+                is ParsedToolCall.SearchWorkspace,
+                is ParsedToolCall.ArtifactInfo,
+                is ParsedToolCall.ChecksumArtifact,
+                is ParsedToolCall.WorkspaceStatus,
+                is ParsedToolCall.Dynamic -> ToolExecutionResult.Failure("This tool requires the 2D workspace execution context.")
                 // ParsedToolCall.WebFetch never actually reaches here —
                 // AgentOrchestrator.handleUserMessage() intercepts and routes
                 // it to executeWebFetch() (a real network call) before either
@@ -104,7 +130,7 @@ class ToolExecutor
                 else -> false
             }
 
-        fun execute(
+        suspend fun execute(
             parsedCall: ParsedToolCall,
             viewModel: StudioViewModel,
         ): ToolExecutionResult {
@@ -168,7 +194,8 @@ class ToolExecutor
                             )
                         var anySuccess = false
                         allVariants.forEach { variant ->
-                            if (compositor.drawPath(
+                            val drawn = if (currentState.layers.firstOrNull { it.id == activeLayerId }?.alphaLock == true) {
+                                compositor.drawPathAlphaLocked(
                                     activeLayerId,
                                     variant,
                                     parsedCall.colorHex ?: currentState.toolState.brushColorHex,
@@ -176,7 +203,17 @@ class ToolExecutor
                                     parsedCall.opacity ?: currentState.toolState.brushOpacity,
                                     brushType = parsedCall.brushType ?: currentState.toolState.brushType,
                                 )
-                            ) {
+                            } else {
+                                compositor.drawPath(
+                                    activeLayerId,
+                                    variant,
+                                    parsedCall.colorHex ?: currentState.toolState.brushColorHex,
+                                    parsedCall.strokeWidthPx ?: currentState.toolState.brushSizePx,
+                                    parsedCall.opacity ?: currentState.toolState.brushOpacity,
+                                    brushType = parsedCall.brushType ?: currentState.toolState.brushType,
+                                )
+                            }
+                            if (drawn) {
                                 anySuccess = true
                             }
                         }
@@ -350,6 +387,158 @@ class ToolExecutor
                         }
                     }
                 }
+
+                is ParsedToolCall.Remember -> {
+                    if (parsedCall.value.isBlank()) ToolExecutionResult.Failure("remember requires a non-empty value")
+                    else {
+                        memoryRepository.remember(parsedCall.namespace, parsedCall.key, parsedCall.value, currentState.projectId)
+                        ToolExecutionResult.Success("Remembered ${parsedCall.key} in ${parsedCall.namespace}.")
+                    }
+                }
+
+                is ParsedToolCall.Recall -> {
+                    val found = memoryRepository.recall(parsedCall.namespace, parsedCall.query)
+                    if (found.isEmpty()) ToolExecutionResult.Success("No matching memories found in ${parsedCall.namespace}.")
+                    else ToolExecutionResult.Success(found.joinToString("\n") { "${it.key}: ${it.value}" })
+                }
+
+                is ParsedToolCall.ReadWorkspaceFile -> {
+                    workspaceFileTools.read(parsedCall.path, parsedCall.maxChars).fold(
+                        onSuccess = { ToolExecutionResult.Success("FILE_BEGIN ${parsedCall.path}\n$it\nFILE_END") },
+                        onFailure = { ToolExecutionResult.Failure(it.message ?: "Unable to read workspace file") },
+                    )
+                }
+                is ParsedToolCall.WriteWorkspaceFile -> {
+                    workspaceFileTools.write(parsedCall.path, parsedCall.content).fold(
+                        onSuccess = { ToolExecutionResult.Success("Wrote workspace file at ${it.absolutePath}") },
+                        onFailure = { ToolExecutionResult.Failure(it.message ?: "Unable to write workspace file") },
+                    )
+                }
+                is ParsedToolCall.ListWorkspaceDirectory -> {
+                    workspaceFileTools.list(parsedCall.path).fold(
+                        onSuccess = { ToolExecutionResult.Success(it.joinToString("\n")) },
+                        onFailure = { ToolExecutionResult.Failure(it.message ?: "Unable to list directory") },
+                    )
+                }
+                is ParsedToolCall.ReplaceWorkspaceText -> {
+                    workspaceFileTools.replace(parsedCall.path, parsedCall.old, parsedCall.new, parsedCall.all).fold(
+                        onSuccess = { ToolExecutionResult.Success("Patched ${it.absolutePath}") },
+                        onFailure = { ToolExecutionResult.Failure(it.message ?: "Unable to patch file") },
+                    )
+                }
+
+                is ParsedToolCall.GenerateImage -> {
+                    val result = imageGenerationService.generate(currentState.projectId ?: "default", parsedCall.prompt, parsedCall.size, parsedCall.model)
+                    result.fold(
+                        onSuccess = { image -> ToolExecutionResult.Success("MEDIA_URI=${image.uri}\nARTIFACT_NAME=${image.fileName}\nPATH=${image.path}\nSIZE=${image.sizeBytes}") },
+                        onFailure = { ToolExecutionResult.Failure(it.message ?: "Image generation failed") },
+                    )
+                }
+
+                is ParsedToolCall.CreateFile -> {
+                    val threadId = currentState.projectId ?: "default"
+                    val ref = artifactStore.writeText(threadId, parsedCall.fileName, parsedCall.content, parsedCall.mimeType, "create_file")
+                    ToolExecutionResult.Success("Created artifact ${ref.name} (${ref.sizeBytes} bytes) at ${ref.path}")
+                }
+
+                is ParsedToolCall.CreateZip -> {
+                    val inputs = runCatching {
+                        kotlinx.serialization.json.Json.parseToJsonElement(parsedCall.filesJson).jsonArray.mapNotNull { element ->
+                            val obj = element.jsonObject
+                            val name = obj["name"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                            com.waheed.artificerx.core.artifact.ArtifactInput(
+                                name = name,
+                                bytes = (obj["content"]?.jsonPrimitive?.contentOrNull ?: "").toByteArray(Charsets.UTF_8),
+                                mimeType = obj["mime_type"]?.jsonPrimitive?.contentOrNull ?: "text/plain",
+                            )
+                        }
+                    }.getOrElse { emptyList() }
+                    if (inputs.isEmpty()) {
+                        ToolExecutionResult.Failure("create_zip requires a non-empty JSON files array")
+                    } else {
+                        val ref = artifactStore.writeZip(currentState.projectId ?: "default", parsedCall.fileName, inputs, "create_zip")
+                        ToolExecutionResult.Success("Created ZIP ${ref.name} (${ref.sizeBytes} bytes) at ${ref.path}")
+                    }
+                }
+
+                is ParsedToolCall.RunTerminalCommand -> {
+                    val result = terminalSandbox.run(parsedCall.command, parsedCall.timeoutSeconds.toLong())
+                    ToolExecutionResult.Success("exit=${result.exitCode}\nstdout=${result.stdout}\nstderr=${result.stderr}")
+                }
+
+                is ParsedToolCall.RunTerminalBatch -> {
+                    val results = terminalSandbox.runBatch(parsedCall.commands, parsedCall.timeoutSeconds.toLong())
+                    ToolExecutionResult.Success(results.joinToString("\n\n") { "${it.command} -> exit=${it.exitCode}\nstdout=${it.stdout}\nstderr=${it.stderr}" })
+                }
+
+                is ParsedToolCall.ListArtifacts -> {
+                    val artifacts = workspaceRepository.observeArtifacts(currentState.projectId ?: "default").first()
+                    val filtered = parsedCall.query?.takeIf { it.isNotBlank() }?.let { q -> artifacts.filter { it.name.contains(q, true) || it.mimeType.contains(q, true) } } ?: artifacts
+                    if (filtered.isEmpty()) ToolExecutionResult.Success("No matching artifacts.")
+                    else ToolExecutionResult.Success(filtered.joinToString("\n") { "${it.id} | ${it.name} | ${it.mimeType} | ${it.sizeBytes} bytes" })
+                }
+
+                is ParsedToolCall.SearchWorkspace -> {
+                    if (parsedCall.query.isBlank()) ToolExecutionResult.Failure("search_workspace requires a non-empty query")
+                    else {
+                        val results = workspaceSearch.search(parsedCall.query)
+                        if (results.isEmpty()) ToolExecutionResult.Success("No workspace matches for '${parsedCall.query}'.")
+                        else ToolExecutionResult.Success(results.joinToString("\n") { "${it.kind} | ${it.id} | ${it.title} | ${it.subtitle}" })
+                    }
+                }
+
+                is ParsedToolCall.ArtifactInfo -> {
+                    val artifact = workspaceRepository.getArtifact(parsedCall.artifactId)
+                    if (artifact == null) ToolExecutionResult.Failure("Artifact '${parsedCall.artifactId}' was not found.")
+                    else {
+                        val validation = com.waheed.artificerx.core.insights.ArtifactValidator.validate(artifact.path)
+                        ToolExecutionResult.Success("id=${artifact.id}\nname=${artifact.name}\nmime=${artifact.mimeType}\npath=${artifact.path}\nrecordedSize=${artifact.sizeBytes}\nactualSize=${validation.sizeBytes}\nvalidation=${validation.reason}")
+                    }
+                }
+
+                is ParsedToolCall.ChecksumArtifact -> {
+                    val artifact = workspaceRepository.getArtifact(parsedCall.artifactId)
+                    if (artifact == null) ToolExecutionResult.Failure("Artifact '${parsedCall.artifactId}' was not found.")
+                    else {
+                        val file = java.io.File(artifact.path)
+                        if (!file.isFile) ToolExecutionResult.Failure("Artifact file is unavailable at ${artifact.path}")
+                        else {
+                            val digest = java.security.MessageDigest.getInstance("SHA-256")
+                            file.inputStream().use { input ->
+                                val buffer = ByteArray(DEFAULT_CHECKSUM_BUFFER)
+                                while (true) {
+                                    val count = input.read(buffer)
+                                    if (count <= 0) break
+                                    digest.update(buffer, 0, count)
+                                }
+                            }
+                            ToolExecutionResult.Success("SHA-256=${digest.digest().joinToString("") { "%02x".format(it) }}")
+                        }
+                    }
+                }
+
+                is ParsedToolCall.WorkspaceStatus -> {
+                    val snapshot = com.waheed.artificerx.core.insights.WorkspaceInsights.snapshot()
+                    ToolExecutionResult.Success("wiringScore=${snapshot.wiringScore}%\nplugins=${snapshot.pluginCount}\ntools=${snapshot.toolCount}\nhealthyFeatures=${snapshot.healthyFeatures}/${snapshot.totalFeatures}")
+                }
+
+                is ParsedToolCall.ExportWorkspaceBundle -> {
+                    val ref = workspaceBundleService.exportThread(currentState.projectId ?: "default")
+                    ToolExecutionResult.Success("Workspace bundle created: ${ref.name} (${ref.sizeBytes} bytes), artifactId=${ref.id}")
+                }
+
+                is ParsedToolCall.Dynamic ->
+                    // Dead path kept only so this `when` stays exhaustive:
+                    // ToolCallParser no longer ever produces ParsedToolCall.Dynamic
+                    // (the fake 3,000-tool catalog and its no-op router were
+                    // removed — see ToolRegistry's note). If this is ever hit it
+                    // means something upstream still emits a "*_tool_*"-style
+                    // name; report it plainly rather than silently pretending
+                    // to have performed an action.
+                    ToolExecutionResult.Failure(
+                        "'${parsedCall.name}' is not a real tool. The dynamic capability catalog was removed. " +
+                            "Use one of: ${ToolRegistry.ALL_TOOLS.map { it.function.name }}",
+                    )
 
                 is ParsedToolCall.InspectCanvas ->
                     ToolExecutionResult.Success(
@@ -692,6 +881,10 @@ class ToolExecutor
             }
 
             return result
+        }
+
+        private companion object {
+            const val DEFAULT_CHECKSUM_BUFFER = 16 * 1024
         }
 
         /** Section symmetry tool: generates mirrored point-array variants

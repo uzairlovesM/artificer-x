@@ -12,6 +12,7 @@
     <!-- Section: Camera/media capture — CameraX photo/video capture. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <!-- Declared but not required: this app's camera features are an
          enhancement, not core functionality, so devices without a
          camera (rare, but e.g. some tablets) can still install it —
@@ -76,5 +77,14 @@
             </intent-filter>
         </activity>
 
+            <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/artificerx_file_paths" />
+        </provider>
     </application>
 </manifest>

@@ -1,6 +1,9 @@
 package com.waheed.artificerx.ui.screens.chat
 
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +24,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -31,7 +36,9 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -49,6 +56,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImage
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.waheed.artificerx.domain.model.ChatMessage
 import com.waheed.artificerx.domain.model.ChatMessageRole
@@ -58,7 +66,6 @@ import com.waheed.artificerx.ui.theme.AgentLogTextStyle
 import com.waheed.artificerx.ui.theme.ChatBubbleAgentShape
 import com.waheed.artificerx.ui.theme.ChatBubbleUserShape
 import com.waheed.artificerx.ui.theme.GoldPrimary
-import com.waheed.artificerx.ui.theme.PurpleAccent
 import com.waheed.artificerx.ui.theme.QualityFail
 import com.waheed.artificerx.ui.theme.QualityPass
 import com.waheed.artificerx.ui.theme.QualityWarn
@@ -85,6 +92,7 @@ fun AgentChatScreen(
     val listState = rememberLazyListState()
     val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+    var showThreads by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
 
     LaunchedEffect(studioViewModel) {
         viewModel.bindStudioViewModel(studioViewModel)
@@ -162,7 +170,30 @@ fun AgentChatScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        ChatTopBar(onBack = onBack, onClear = viewModel::clearConversation)
+        ChatTopBar(
+            onBack = onBack,
+            onClear = viewModel::clearConversation,
+            onNewThread = viewModel::newThread,
+            onOpenThreads = { showThreads = true },
+        )
+
+        if (showThreads) {
+            AlertDialog(
+                onDismissRequest = { showThreads = false },
+                title = { Text("Conversations") },
+                text = {
+                    androidx.compose.foundation.lazy.LazyColumn {
+                        items(state.threadTitles.entries.toList(), key = { it.key }) { entry ->
+                            TextButton(
+                                onClick = { showThreads = false; viewModel.switchThread(entry.key) },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text(if (entry.key == state.activeThreadId) "● ${entry.value}" else entry.value) }
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { showThreads = false; viewModel.newThread() }) { Text("New chat") } },
+            )
+        }
 
         if (!state.hasConfiguredProvider) {
             NoProviderBanner()
@@ -175,7 +206,10 @@ fun AgentChatScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(state.messages, key = { it.id }) { message ->
-                ChatBubble(message)
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = true,
+                    enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(220)) + slideInVertically(initialOffsetY = { it / 5 }, animationSpec = androidx.compose.animation.core.tween(220)),
+                ) { ChatBubble(message) }
             }
             if (state.isAgentResponding) {
                 item { TypingIndicatorBubble() }
@@ -212,28 +246,25 @@ fun AgentChatScreen(
 private fun ChatTopBar(
     onBack: () -> Unit,
     onClear: () -> Unit,
+    onNewThread: () -> Unit,
+    onOpenThreads: () -> Unit,
 ) {
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.background)
-                .padding(horizontal = 8.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = onBack) {
-            Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
+    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") }
+        androidx.compose.material3.Surface(
+            onClick = onOpenThreads,
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+        ) {
+            Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Chat, contentDescription = null, modifier = Modifier.size(17.dp))
+                Spacer(modifier = Modifier.size(7.dp))
+                Text("Conversations", style = MaterialTheme.typography.labelLarge)
+            }
         }
-        Text(
-            text = "Agent Chat",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.weight(1f),
-        )
-        IconButton(onClick = onClear) {
-            Icon(Icons.Filled.DeleteSweep, contentDescription = "Clear conversation", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        Spacer(modifier = Modifier.weight(1f))
+        IconButton(onClick = onNewThread) { Icon(Icons.Filled.Add, contentDescription = "New conversation", tint = GoldPrimary) }
+        IconButton(onClick = onClear) { Icon(Icons.Filled.DeleteSweep, contentDescription = "Delete conversation", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 
@@ -292,9 +323,10 @@ private fun ChatBubble(message: ChatMessage) {
                 Modifier
                     .widthIn(max = 280.dp)
                     .clip(if (isUser) ChatBubbleUserShape else ChatBubbleAgentShape)
+                    .animateContentSize(animationSpec = androidx.compose.animation.core.tween(180))
                     .background(
                         if (isUser) {
-                            PurpleAccent.copy(alpha = 0.85f)
+                            GoldPrimary.copy(alpha = 0.88f)
                         } else {
                             MaterialTheme.colorScheme.surfaceVariant
                         },
@@ -333,9 +365,41 @@ private fun ChatBubble(message: ChatMessage) {
             // leaving the chat to go hunt through a gallery app.
             if (message.autoSavedUri != null) {
                 Spacer(modifier = Modifier.padding(top = 8.dp))
+                AsyncImage(
+                    model = message.autoSavedUri,
+                    contentDescription = "AI generated output",
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp).clip(ChatBubbleAgentShape),
+                )
                 AutoSavedRow(fileName = message.autoSavedFileName.orEmpty(), uri = message.autoSavedUri)
             }
+
+            message.toolCalls.filter { it.status == ToolCallStatus.SUCCESS && (it.resultSummary?.contains("Created artifact") == true || it.resultSummary?.contains("Created ZIP") == true) }.forEach { tool ->
+                val path = Regex("at (.+)$").find(tool.resultSummary.orEmpty())?.groupValues?.getOrNull(1)
+                if (!path.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.padding(top = 6.dp))
+                    ArtifactActionRow(fileName = tool.toolName, path = path)
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun ArtifactActionRow(fileName: String, path: String) {
+    val context = LocalContext.current
+    val file = java.io.File(path)
+    if (!file.exists()) return
+    val uri = runCatching { androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file) }.getOrNull() ?: return
+    val mime = if (file.extension.equals("zip", true)) "application/zip" else "text/plain"
+    Row(
+        modifier = Modifier.fillMaxWidth().clip(ToolCallChipShape).background(MaterialTheme.colorScheme.surfaceVariant).padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.Download, contentDescription = null, tint = QualityPass, modifier = Modifier.size(15.dp))
+        Text(file.name, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f).padding(horizontal = 7.dp))
+        IconButton(modifier = Modifier.size(30.dp), onClick = {
+            runCatching { context.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType(mime).putExtra(android.content.Intent.EXTRA_STREAM, uri).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share artifact").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        }) { Icon(Icons.Filled.Share, contentDescription = "Share artifact", tint = GoldPrimary) }
     }
 }
 

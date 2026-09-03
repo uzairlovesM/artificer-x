@@ -99,8 +99,8 @@ android {
         // against this app's own code, while still satisfying the
         // core-ktx 1.18.0 compileSdk requirement above.
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.4.30"
+        versionCode = 4
+        versionName = "0.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -419,6 +419,8 @@ dependencies {
     implementation(libs.colorpicker.compose)
     implementation(libs.lottie.compose)
     implementation(libs.zoomable)
+    implementation(libs.androidx.graphics.path)
+    implementation(libs.androidx.graphics.shapes)
     implementation(libs.androidx.palette)
     implementation(libs.androidx.exifinterface)
 

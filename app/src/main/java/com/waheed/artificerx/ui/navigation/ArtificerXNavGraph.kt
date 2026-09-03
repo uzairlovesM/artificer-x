@@ -28,15 +28,47 @@ import com.waheed.artificerx.ui.screens.canvas.StudioScreen
 import com.waheed.artificerx.ui.screens.chat.AgentChatScreen
 import com.waheed.artificerx.ui.screens.onboarding.ProviderSetupScreen
 import com.waheed.artificerx.ui.screens.onboarding.WelcomeScreen
+import com.waheed.artificerx.ui.screens.plugins.PluginCenterScreen
 import com.waheed.artificerx.ui.screens.settings.AiProvidersSettingsScreen
 import com.waheed.artificerx.ui.screens.settings.LocalModelScreen
 import com.waheed.artificerx.ui.screens.settings.SettingsRootScreen
+import com.waheed.artificerx.ui.screens.hybrid.HybridFeatureScreen
+import com.waheed.artificerx.ui.screens.hub.ArtifactHubScreen
+import com.waheed.artificerx.ui.screens.hub.ToolUniverseScreen
+import com.waheed.artificerx.ui.screens.hub.DiagnosticsScreen
+import com.waheed.artificerx.ui.screens.command.CommandCenterScreen
+import com.waheed.artificerx.ui.screens.memory.MemoryCenterScreen
+import com.waheed.artificerx.ui.screens.workflow.WorkflowLabScreen
+import com.waheed.artificerx.ui.screens.models.ModelPlaygroundScreen
+import com.waheed.artificerx.ui.screens.security.SecurityCenterScreen
+import com.waheed.artificerx.ui.screens.search.UniversalSearchScreen
+import com.waheed.artificerx.ui.screens.art.ProArtStudioScreen
+import com.waheed.artificerx.ui.screens.art.BrushLabScreen
+import com.waheed.artificerx.ui.screens.art.LayerLabScreen
+import com.waheed.artificerx.ui.screens.art.FilterLabScreen
+import com.waheed.artificerx.ui.screens.art.RulerLabScreen
+import com.waheed.artificerx.ui.screens.art.AnimationLabScreen
+import com.waheed.artificerx.ui.screens.art.MaterialLabScreen
+import com.waheed.artificerx.ui.screens.art.MangaPageLabScreen
+import com.waheed.artificerx.ui.screens.art.ColorStudioScreen
+import com.waheed.artificerx.ui.screens.art.TextStudioScreen
+import com.waheed.artificerx.ui.screens.art.ReferenceStudioScreen
+import com.waheed.artificerx.ui.screens.ai.AgentWorkbenchScreen
+import com.waheed.artificerx.ui.screens.system.PermissionsStorageScreen
+import com.waheed.artificerx.ui.screens.system.WorkspaceFileSystemScreen
+import com.waheed.artificerx.ui.screens.system.SystemObservatoryScreen
+import com.waheed.artificerx.ui.screens.art.CustomBrushDesignerScreen
+import com.waheed.artificerx.core.art.CustomBrushStore
+
+@dagger.hilt.EntryPoint
+@dagger.hilt.InstallIn(dagger.hilt.android.components.ActivityComponent::class)
+interface CustomBrushEntryPoint { fun store(): CustomBrushStore }
 
 /**
  * Top-level nav graph. Every route from Destinations gets an entry here.
  * Phase 1-4 routes (onboarding, studio, chat, provider settings) point
  * to real composables. Everything from Section 60 onward (manga mode,
- * experiment mode, style mixer, etc.) is wired to PlaceholderScreen so
+ * experiment mode, style mixer, etc.) is wired to functional capability screens so
  * the graph is navigable end-to-end today, and later phases only need
  * to swap the composable body — never touch routing/argument plumbing
  * again.
@@ -45,6 +77,11 @@ import com.waheed.artificerx.ui.screens.settings.SettingsRootScreen
  * morphism brand's "soft depth" feel rather than Android's default
  * hard-cut) across every destination via NavHost's shared defaults.
  */
+import com.waheed.artificerx.ui.screens.system.AutomationCenterScreen
+import com.waheed.artificerx.ui.screens.system.WorkspaceSearchScreen
+import com.waheed.artificerx.ui.screens.ai.AgentTimelineScreen
+import com.waheed.artificerx.ui.screens.system.ExtremeControlCenterScreen
+
 @Composable
 fun ArtificerXNavGraph(
     navController: NavHostController,
@@ -94,13 +131,28 @@ fun ArtificerXNavGraph(
         }
 
         composable(Destinations.ONBOARDING_PERMISSIONS_PRIMER) {
-            PlaceholderScreen(title = "Permissions Primer")
+            HybridFeatureScreen("Permissions & Runtime", "Permission-aware feature gateway", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) })
         }
 
         composable(Destinations.STUDIO) { backStackEntry ->
             val studioViewModel: com.waheed.artificerx.ui.screens.canvas.StudioViewModel =
                 androidx.hilt.navigation.compose
                     .hiltViewModel(backStackEntry)
+            StudioScreen(
+                snackbarHostState = snackbarHostState,
+                onOpenAgentChat = { navController.navigate(Destinations.AGENT_CHAT) },
+                onOpenSettings = { navController.navigate(Destinations.SETTINGS_ROOT) },
+                onOpenProjectGallery = { navController.navigate(Destinations.PROJECT_GALLERY) },
+                onOpenExport = { projectId -> navController.navigate(Destinations.exportRoute(projectId)) },
+                onOpenSculptStudio = { navController.navigate(Destinations.SCULPT_STUDIO) },
+                onOpenTimelapse = { navController.navigate(Destinations.SHOW_PROCESS) },
+                viewModel = studioViewModel,
+            )
+        }
+
+        composable(Destinations.CANVAS) { backStackEntry ->
+            val studioViewModel: com.waheed.artificerx.ui.screens.canvas.StudioViewModel =
+                androidx.hilt.navigation.compose.hiltViewModel(backStackEntry)
             StudioScreen(
                 snackbarHostState = snackbarHostState,
                 onOpenAgentChat = { navController.navigate(Destinations.AGENT_CHAT) },
@@ -133,22 +185,92 @@ fun ArtificerXNavGraph(
             )
         }
 
+        composable(Destinations.PLUGIN_CENTER) { PluginCenterScreen(onBack = { navController.popBackStack() }) }
+
+        composable(Destinations.DIAGNOSTICS) { DiagnosticsScreen(onBack = { navController.popBackStack() }) }
+        composable(Destinations.TOOL_UNIVERSE) { ToolUniverseScreen(onBack = { navController.popBackStack() }) }
+        composable(Destinations.ARTIFACT_HUB) { ArtifactHubScreen(onBack = { navController.popBackStack() }) }
+        composable(Destinations.COMMAND_CENTER) {
+            CommandCenterScreen(
+                onBack = { navController.popBackStack() },
+                onPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) },
+                onTools = { navController.navigate(Destinations.TOOL_UNIVERSE) },
+                onArtifacts = { navController.navigate(Destinations.ARTIFACT_HUB) },
+                onMemory = { navController.navigate(Destinations.MEMORY_CENTER) },
+                onWorkflow = { navController.navigate(Destinations.WORKFLOW_LAB) },
+                onSecurity = { navController.navigate(Destinations.SECURITY_CENTER) },
+                onSearch = { navController.navigate(Destinations.WORKSPACE_SEARCH) },
+                onDiagnostics = { navController.navigate(Destinations.DIAGNOSTICS) },
+                onExport = { navController.navigate(Destinations.WORKSPACE_EXPORT) },
+                onImport = { navController.navigate(Destinations.WORKSPACE_IMPORT) },
+                onArtStudio = { navController.navigate(Destinations.PRO_ART_STUDIO) },
+                onAgentWorkbench = { navController.navigate(Destinations.AGENT_WORKBENCH) },
+                onPermissions = { navController.navigate(Destinations.PERMISSIONS_STORAGE) },
+                onWorkspaceFiles = { navController.navigate(Destinations.WORKSPACE_FILES) },
+                onExtremeControl = { navController.navigate(Destinations.EXTREME_CONTROL_CENTER) },
+            )
+        }
+        composable(Destinations.MEMORY_CENTER) { MemoryCenterScreen(onBack = { navController.popBackStack() }) }
+        composable(Destinations.WORKFLOW_LAB) { WorkflowLabScreen(onBack = { navController.popBackStack() }) }
+        composable(Destinations.MODEL_PLAYGROUND) { ModelPlaygroundScreen(onBack = { navController.popBackStack() }) }
+        composable(Destinations.SECURITY_CENTER) { SecurityCenterScreen(onBack = { navController.popBackStack() }) }
+        composable(Destinations.WORKSPACE_SEARCH) { UniversalSearchScreen(onBack = { navController.popBackStack() }) }
+        composable(Destinations.WORKSPACE_EXPORT) { com.waheed.artificerx.ui.screens.export.WorkspaceBundleScreen(onBack = { navController.popBackStack() }) }
+        composable(Destinations.WORKSPACE_IMPORT) { com.waheed.artificerx.ui.screens.importexport.WorkspaceImportScreen(onBack = { navController.popBackStack() }) }
+
         composable(Destinations.MAPS) {
             com.waheed.artificerx.ui.screens.maps.MapScreen(
                 onBack = { navController.popBackStack() },
             )
         }
 
+        composable(Destinations.PRO_ART_STUDIO) {
+            val parent = remember { navController.getBackStackEntry(Destinations.STUDIO) }
+            val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent)
+            ProArtStudioScreen(vm, onBack={navController.popBackStack()}, onBrushes={navController.navigate(Destinations.BRUSH_LAB)}, onLayers={navController.navigate(Destinations.LAYER_LAB)}, onFilters={navController.navigate(Destinations.FILTER_LAB)}, onRulers={navController.navigate(Destinations.RULER_LAB)}, onAnimation={navController.navigate(Destinations.ANIMATION_LAB)}, onMaterials={navController.navigate(Destinations.MATERIAL_LAB)}, onManga={navController.navigate(Destinations.MANGA_PAGE_LAB)}, onColor={navController.navigate(Destinations.COLOR_STUDIO)}, onText={navController.navigate(Destinations.TEXT_STUDIO)}, onReference={navController.navigate(Destinations.REFERENCE_STUDIO)})
+        }
+        composable(Destinations.BRUSH_LAB) { val parent=remember{navController.getBackStackEntry(Destinations.STUDIO)}; val vm:com.waheed.artificerx.ui.screens.canvas.StudioViewModel=androidx.hilt.navigation.compose.hiltViewModel(parent); BrushLabScreen(vm, { navController.popBackStack() }, { navController.navigate(Destinations.CUSTOM_BRUSH_DESIGNER) }) }
+        composable(Destinations.LAYER_LAB) { val parent=remember{navController.getBackStackEntry(Destinations.STUDIO)}; val vm:com.waheed.artificerx.ui.screens.canvas.StudioViewModel=androidx.hilt.navigation.compose.hiltViewModel(parent); LayerLabScreen(vm,{navController.popBackStack()}) }
+        composable(Destinations.FILTER_LAB) { val parent=remember{navController.getBackStackEntry(Destinations.STUDIO)}; val vm:com.waheed.artificerx.ui.screens.canvas.StudioViewModel=androidx.hilt.navigation.compose.hiltViewModel(parent); FilterLabScreen(vm,{navController.popBackStack()}) }
+        composable(Destinations.RULER_LAB) { RulerLabScreen{navController.popBackStack()} }
+        composable(Destinations.ANIMATION_LAB) { AnimationLabScreen{navController.popBackStack()} }
+        composable(Destinations.MATERIAL_LAB) { MaterialLabScreen{navController.popBackStack()} }
+        composable(Destinations.MANGA_PAGE_LAB) { MangaPageLabScreen{navController.popBackStack()} }
+        composable(Destinations.COLOR_STUDIO) { val parent=remember{navController.getBackStackEntry(Destinations.STUDIO)}; val vm:com.waheed.artificerx.ui.screens.canvas.StudioViewModel=androidx.hilt.navigation.compose.hiltViewModel(parent); ColorStudioScreen(vm,{navController.popBackStack()}) }
+        composable(Destinations.TEXT_STUDIO) { val parent=remember{navController.getBackStackEntry(Destinations.STUDIO)}; val vm:com.waheed.artificerx.ui.screens.canvas.StudioViewModel=androidx.hilt.navigation.compose.hiltViewModel(parent); TextStudioScreen(vm,{navController.popBackStack()}) }
+        composable(Destinations.REFERENCE_STUDIO) { ReferenceStudioScreen{navController.popBackStack()} }
+        composable(Destinations.AUTOMATION_CENTER) { AutomationCenterScreen { navController.popBackStack() } }
+        composable(Destinations.WORKSPACE_SEARCH_ADVANCED) { WorkspaceSearchScreen { navController.popBackStack() } }
+        composable(Destinations.AGENT_TIMELINE) { AgentTimelineScreen { navController.popBackStack() } }
+        composable(Destinations.EXTREME_CONTROL_CENTER) { ExtremeControlCenterScreen(
+            onBack = { navController.popBackStack() },
+            onAutomation = { navController.navigate(Destinations.AUTOMATION_CENTER) },
+            onSearch = { navController.navigate(Destinations.WORKSPACE_SEARCH_ADVANCED) },
+            onTimeline = { navController.navigate(Destinations.AGENT_TIMELINE) },
+            onPermissions = { navController.navigate(Destinations.PERMISSIONS_STORAGE) },
+            onFiles = { navController.navigate(Destinations.WORKSPACE_FILES) },
+            onObservatory = { navController.navigate(Destinations.SYSTEM_OBSERVATORY) },
+        ) }
+        composable(Destinations.SYSTEM_OBSERVATORY) { SystemObservatoryScreen { navController.popBackStack() } }
+        composable(Destinations.CUSTOM_BRUSH_DESIGNER) {
+            val activity = androidx.compose.ui.platform.LocalContext.current as android.app.Activity
+            val ep = androidx.compose.runtime.remember { dagger.hilt.android.EntryPointAccessors.fromActivity(activity, CustomBrushEntryPoint::class.java) }
+            CustomBrushDesignerScreen(ep.store(), onBack = { navController.popBackStack() })
+        }
+        composable(Destinations.AGENT_WORKBENCH) { AgentWorkbenchScreen({navController.popBackStack()},{navController.navigate(Destinations.AGENT_CHAT)},{navController.navigate(Destinations.TOOL_UNIVERSE)}) }
+        composable(Destinations.PERMISSIONS_STORAGE) { PermissionsStorageScreen{navController.popBackStack()} }
+        composable(Destinations.WORKSPACE_FILES) { WorkspaceFileSystemScreen{navController.popBackStack()} }
+
         composable(Destinations.LAYER_PANEL) {
-            PlaceholderScreen(title = "Layer Panel")
+            HybridFeatureScreen("Layer Command Center", "Layer state, history and destructive-operation guards", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) })
         }
 
         composable(Destinations.TOOL_PALETTE) {
-            PlaceholderScreen(title = "Tool Palette")
+            HybridFeatureScreen("Tool Universe", "Searchable tool families and capability routing", onBack = { navController.popBackStack() })
         }
 
         composable(Destinations.LIVE_AGENT_LOG) {
-            PlaceholderScreen(title = "Live Agent Log")
+            HybridFeatureScreen("Live Agent Telemetry", "Execution trace, tool lifecycle and health signals", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) })
         }
 
         composable(Destinations.SHOW_PROCESS) { backStackEntry ->
@@ -187,7 +309,7 @@ fun ArtificerXNavGraph(
             arguments = listOf(navArgument(Destinations.PROJECT_DETAIL_ARG) { type = NavType.StringType }),
         ) { backStackEntry ->
             val projectId = backStackEntry.arguments?.getString(Destinations.PROJECT_DETAIL_ARG).orEmpty()
-            PlaceholderScreen(title = "Project Detail: $projectId")
+            HybridFeatureScreen("Project Detail", "Project $projectId • files, versions, artifacts and tools", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) })
         }
 
         composable(
@@ -203,23 +325,23 @@ fun ArtificerXNavGraph(
         }
 
         composable(Destinations.REFERENCE_BOARD) {
-            PlaceholderScreen(title = "Reference Board")
+            HybridFeatureScreen("Reference Board", "Research, media references and project context", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) })
         }
 
         composable(Destinations.MOODBOARD) {
-            PlaceholderScreen(title = "Moodboard to Art")
+            HybridFeatureScreen("Moodboard Lab", "Reference clustering and image-generation preparation", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) })
         }
 
         composable(Destinations.STYLE_MIXER) {
-            PlaceholderScreen(title = "Art Style Mixer")
+            HybridFeatureScreen("Art Style Mixer", "Style composition, presets and image-generation controls", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) })
         }
 
         composable(Destinations.STYLE_DNA_LIBRARY) {
-            PlaceholderScreen(title = "Style DNA Library")
+            HybridFeatureScreen("Style DNA Library", "Persistent visual language and reusable presets", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) })
         }
 
         composable(Destinations.CHARACTER_LIBRARY) {
-            PlaceholderScreen(title = "Character Library")
+            HybridFeatureScreen("Character Library", "Character assets, visual continuity and exports", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) })
         }
 
         composable(
@@ -241,7 +363,7 @@ fun ArtificerXNavGraph(
                     onBack = { navController.popBackStack() },
                 )
             } else {
-                PlaceholderScreen(title = "Export unavailable — open a project from Studio first")
+                HybridFeatureScreen("Export Hub", "Open a project to attach live studio state; artifact/export controls remain available", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) })
             }
         }
 
@@ -256,6 +378,16 @@ fun ArtificerXNavGraph(
                 onOpenBackupRestore = { navController.navigate(Destinations.SETTINGS_BACKUP_RESTORE) },
                 onOpenAccessibility = { navController.navigate(Destinations.SETTINGS_ACCESSIBILITY) },
                 onOpenAbout = { navController.navigate(Destinations.SETTINGS_ABOUT) },
+                onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) },
+                onOpenDiagnostics = { navController.navigate(Destinations.DIAGNOSTICS) },
+                onOpenTools = { navController.navigate(Destinations.TOOL_UNIVERSE) },
+                onOpenArtifacts = { navController.navigate(Destinations.ARTIFACT_HUB) },
+                onOpenCommandCenter = { navController.navigate(Destinations.COMMAND_CENTER) },
+                onOpenMemory = { navController.navigate(Destinations.MEMORY_CENTER) },
+                onOpenWorkflow = { navController.navigate(Destinations.WORKFLOW_LAB) },
+                onOpenModelPlayground = { navController.navigate(Destinations.MODEL_PLAYGROUND) },
+                onOpenSecurity = { navController.navigate(Destinations.SECURITY_CENTER) },
+                onOpenWorkspaceSearch = { navController.navigate(Destinations.WORKSPACE_SEARCH) },
             )
         }
 
@@ -287,7 +419,7 @@ fun ArtificerXNavGraph(
             arguments = listOf(navArgument(Destinations.SETTINGS_PROVIDER_DETAIL_ARG) { type = NavType.StringType }),
         ) { backStackEntry ->
             val providerId = backStackEntry.arguments?.getString(Destinations.SETTINGS_PROVIDER_DETAIL_ARG).orEmpty()
-            PlaceholderScreen(title = "Provider Detail: $providerId")
+            HybridFeatureScreen("Provider Detail", "Provider $providerId • health, models, quota and routing", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) })
         }
 
         composable(Destinations.SETTINGS_QUALITY_BUDGET) {
@@ -326,19 +458,19 @@ fun ArtificerXNavGraph(
             )
         }
 
-        composable(Destinations.MODE_MANGA) { PlaceholderScreen(title = "Manga Mode") }
-        composable(Destinations.MODE_ANIME) { PlaceholderScreen(title = "Anime Mode") }
-        composable(Destinations.MODE_REALISTIC) { PlaceholderScreen(title = "Realistic Mode") }
-        composable(Destinations.MODE_CARTOON) { PlaceholderScreen(title = "Cartoon Mode") }
-        composable(Destinations.MODE_PAINTING) { PlaceholderScreen(title = "Painting Mode") }
-        composable(Destinations.MODE_PHOTO_EDIT) { PlaceholderScreen(title = "Photo Edit Mode") }
-        composable(Destinations.MODE_PRODUCT_DESIGN) { PlaceholderScreen(title = "Product/Design Mode") }
-        composable(Destinations.MODE_STORYBOARD) { PlaceholderScreen(title = "Storyboard Mode") }
-        composable(Destinations.MODE_SPRITE) { PlaceholderScreen(title = "Sprite Mode") }
-        composable(Destinations.MODE_PIXEL) { PlaceholderScreen(title = "Pixel Mode") }
+        composable(Destinations.MODE_MANGA) { HybridFeatureScreen("Manga Mode", "Panel-first illustration workspace", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) }) }
+        composable(Destinations.MODE_ANIME) { HybridFeatureScreen("Anime Mode", "Anime illustration and generation workspace", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) }) }
+        composable(Destinations.MODE_REALISTIC) { HybridFeatureScreen("Realistic Mode", "Photoreal creative workspace", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) }) }
+        composable(Destinations.MODE_CARTOON) { HybridFeatureScreen("Cartoon Mode", "Shape-driven stylized workspace", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) }) }
+        composable(Destinations.MODE_PAINTING) { HybridFeatureScreen("Painting Mode", "Brush, texture and canvas workspace", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) }) }
+        composable(Destinations.MODE_PHOTO_EDIT) { HybridFeatureScreen("Photo Edit Mode", "Non-destructive image editing workspace", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) }) }
+        composable(Destinations.MODE_PRODUCT_DESIGN) { HybridFeatureScreen("Product Design", "Visual product and UI concept workspace", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) }) }
+        composable(Destinations.MODE_STORYBOARD) { HybridFeatureScreen("Storyboard Mode", "Scene, frame and export workflow", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) }) }
+        composable(Destinations.MODE_SPRITE) { HybridFeatureScreen("Sprite Mode", "Sprite sheet and asset workspace", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) }) }
+        composable(Destinations.MODE_PIXEL) { HybridFeatureScreen("Pixel Mode", "Pixel-perfect canvas and export tools", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) }) }
 
         composable(Destinations.EXPERIMENT_MODE) {
-            PlaceholderScreen(title = "Experiment Mode")
+            HybridFeatureScreen("Experiment Lab", "Controlled model/tool comparisons", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) })
         }
 
         composable(
@@ -346,7 +478,7 @@ fun ArtificerXNavGraph(
             arguments = listOf(navArgument(Destinations.PROJECT_DETAIL_ARG) { type = NavType.StringType }),
         ) { backStackEntry ->
             val projectId = backStackEntry.arguments?.getString(Destinations.PROJECT_DETAIL_ARG).orEmpty()
-            PlaceholderScreen(title = "Comparison View: $projectId")
+            HybridFeatureScreen("Comparison View", "Project $projectId • outputs, models and revision comparison", onBack = { navController.popBackStack() }, onOpenPlugins = { navController.navigate(Destinations.PLUGIN_CENTER) }, onOpenToolUniverse = { navController.navigate(Destinations.TOOL_UNIVERSE) }, onOpenArtifactHub = { navController.navigate(Destinations.ARTIFACT_HUB) })
         }
     }
 }
@@ -358,26 +490,3 @@ fun ArtificerXNavGraph(
  * instead of a route-not-found crash.
  */
 @Composable
-private fun PlaceholderScreen(title: String) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
-            Text(
-                text = "Coming in a later build phase",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp),
-            )
-        }
-    }
-}

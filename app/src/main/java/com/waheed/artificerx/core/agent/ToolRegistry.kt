@@ -57,7 +57,39 @@ object ToolRegistry {
             transformMeshTool(),
             inspectSceneTool(),
             finishTurnTool(),
+            rememberTool(),
+            recallTool(),
+            generateImageTool(),
+            readWorkspaceFileTool(),
+            writeWorkspaceFileTool(),
+            listWorkspaceDirectoryTool(),
+            replaceWorkspaceTextTool(),
+            createFileTool(),
+            createZipTool(),
+            runTerminalTool(),
+            runTerminalBatchTool(),
+            listArtifactsTool(),
+            searchWorkspaceTool(),
+            artifactInfoTool(),
+            checksumArtifactTool(),
+            workspaceStatusTool(),
+            exportWorkspaceBundleTool(),
         )
+    // NOTE (reliability audit): a 3,000-entry auto-generated
+    // "DynamicToolCatalog" (20 families x 150 numbered placeholder
+    // tools like "ai_provider_tool_0001") used to be appended here.
+    // Every one of those schemas was sent to the LLM on every single
+    // turn (~450k+ tokens of pure overhead), yet DynamicCapabilityRouter
+    // resolved almost all of them to a generic "acknowledged, no action
+    // taken" fake-success message — the model would believe an action
+    // succeeded when nothing happened. The handful of families that DID
+    // have real behavior (file read/write/list, web search/fetch, image
+    // generation, memory, terminal) already have proper first-class
+    // tools below (read_workspace_file, write_workspace_file, web_fetch,
+    // web_search, generate_image, remember/recall, run_terminal_command)
+    // with real validation and honest error messages. The catalog added
+    // zero net capability while actively harming reliability and cost,
+    // so it has been removed rather than patched.
 
     private fun createLayerTool() =
         ToolDefinitionDto(
@@ -1059,4 +1091,170 @@ private fun kotlinx.serialization.json.JsonObjectBuilder.putJsonArray(
     builderAction: kotlinx.serialization.json.JsonArrayBuilder.() -> Unit,
 ) {
     put(key, buildJsonArray(builderAction))
+
+    private fun listArtifactsTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+        name = "list_artifacts",
+        description = "Lists real artifacts stored in the active workspace, optionally filtered by name or MIME type.",
+        parameters = buildJsonObject {
+            put("type", "object")
+            putJsonObject("properties") { putJsonObject("query") { put("type", "string") } }
+        },
+    ))
+
+    private fun searchWorkspaceTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+        name = "search_workspace",
+        description = "Searches persisted conversation threads, messages, and artifacts in the local workspace.",
+        parameters = buildJsonObject {
+            put("type", "object")
+            putJsonObject("properties") { putJsonObject("query") { put("type", "string") } }
+            putJsonArray("required") { add(JsonPrimitive("query")) }
+        },
+    ))
+
+    private fun artifactInfoTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+        name = "artifact_info",
+        description = "Returns verified metadata for an existing artifact ID, including path, MIME type and file size.",
+        parameters = buildJsonObject {
+            put("type", "object")
+            putJsonObject("properties") { putJsonObject("artifact_id") { put("type", "string") } }
+            putJsonArray("required") { add(JsonPrimitive("artifact_id")) }
+        },
+    ))
+
+    private fun checksumArtifactTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+        name = "checksum_artifact",
+        description = "Computes a SHA-256 checksum of an existing artifact so generated output can be integrity-verified.",
+        parameters = buildJsonObject {
+            put("type", "object")
+            putJsonObject("properties") { putJsonObject("artifact_id") { put("type", "string") } }
+            putJsonArray("required") { add(JsonPrimitive("artifact_id")) }
+        },
+    ))
+
+    private fun workspaceStatusTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+        name = "get_workspace_status",
+        description = "Returns a compact local runtime status including registered tools and plugin contracts.",
+        parameters = buildJsonObject { put("type", "object"); putJsonObject("properties") {} },
+    ))
+
 }
+
+private fun exportWorkspaceBundleTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+    name = "export_workspace_bundle",
+    description = "Exports the active conversation, redacted memory snapshot, metadata, and readable generated artifacts into a real portable ZIP workspace bundle.",
+    parameters = buildJsonObject { put("type", "object"); putJsonObject("properties") {} },
+))
+
+private fun rememberTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+    name = "remember",
+    description = "Persist a useful non-secret user/project fact locally for future conversations and future app launches.",
+    parameters = buildJsonObject {
+        put("type", "object")
+        putJsonObject("properties") {
+            putJsonObject("key") { put("type", "string") }
+            putJsonObject("value") { put("type", "string") }
+            putJsonObject("namespace") { put("type", "string") }
+        }
+        putJsonArray("required") { add(JsonPrimitive("key")); add(JsonPrimitive("value")) }
+    }
+))
+
+private fun recallTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+    name = "recall",
+    description = "Search persistent local memory for a previous fact, preference, project detail, or instruction.",
+    parameters = buildJsonObject {
+        put("type", "object")
+        putJsonObject("properties") {
+            putJsonObject("query") { put("type", "string") }
+            putJsonObject("namespace") { put("type", "string") }
+        }
+        putJsonArray("required") { add(JsonPrimitive("query")) }
+    }
+))
+
+private fun generateImageTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+    name = "generate_image",
+    description = "Generates an actual PNG image with the configured image-capable provider, saves it as a real artifact, and returns a shareable URI.",
+    parameters = buildJsonObject {
+        put("type", "object")
+        putJsonObject("properties") {
+            putJsonObject("prompt") { put("type", "string") }
+            putJsonObject("size") { put("type", "string") }
+            putJsonObject("model") { put("type", "string") }
+        }
+        putJsonArray("required") { add(JsonPrimitive("prompt")) }
+    }
+))
+
+private fun readWorkspaceFileTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+    name = "read_workspace_file", description = "Reads a UTF-8 file from the managed ARTIFICER-X/works workspace. Safe path constrained.",
+    parameters = buildJsonObject { put("type","object"); putJsonObject("properties") { putJsonObject("path"){put("type","string")}; putJsonObject("max_chars"){put("type","integer")} }; putJsonArray("required"){add(JsonPrimitive("path"))} }
+))
+private fun writeWorkspaceFileTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+    name = "write_workspace_file", description = "Writes a UTF-8 file into the managed ARTIFICER-X/works workspace using an atomic replace.",
+    parameters = buildJsonObject { put("type","object"); putJsonObject("properties") { putJsonObject("path"){put("type","string")}; putJsonObject("content"){put("type","string")} }; putJsonArray("required"){add(JsonPrimitive("path"));add(JsonPrimitive("content"))} }
+))
+private fun listWorkspaceDirectoryTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+    name = "list_workspace_directory", description = "Lists files and directories inside the managed ARTIFICER-X/works workspace.",
+    parameters = buildJsonObject { put("type","object"); putJsonObject("properties"){putJsonObject("path"){put("type","string")}} }
+))
+private fun replaceWorkspaceTextTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+    name = "replace_workspace_text", description = "Replaces a precise text fragment in a managed workspace file. Prefer this for small code patches.",
+    parameters = buildJsonObject { put("type","object"); putJsonObject("properties"){putJsonObject("path"){put("type","string")};putJsonObject("old"){put("type","string")};putJsonObject("new"){put("type","string")};putJsonObject("all"){put("type","boolean")}};putJsonArray("required"){add(JsonPrimitive("path"));add(JsonPrimitive("old"));add(JsonPrimitive("new"))} }
+))
+
+private fun createFileTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+    name = "create_file",
+    description = "Creates a real artifact file in the active chat workspace. Use for code, text, JSON, Markdown, SVG and project files.",
+    parameters = buildJsonObject {
+        put("type", "object")
+        putJsonObject("properties") {
+            putJsonObject("file_name") { put("type", "string") }
+            putJsonObject("content") { put("type", "string") }
+            putJsonObject("mime_type") { put("type", "string") }
+        }
+        putJsonArray("required") { add(JsonPrimitive("file_name")); add(JsonPrimitive("content")) }
+    }
+))
+
+private fun createZipTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+    name = "create_zip",
+    description = "Creates a real ZIP artifact from a JSON array of {name,content,mime_type} entries.",
+    parameters = buildJsonObject {
+        put("type", "object")
+        putJsonObject("properties") {
+            putJsonObject("file_name") { put("type", "string") }
+            putJsonObject("files_json") { put("type", "string") }
+        }
+        putJsonArray("required") { add(JsonPrimitive("file_name")); add(JsonPrimitive("files_json")) }
+    }
+))
+
+private fun runTerminalTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+    name = "run_terminal_command",
+    description = "Runs one shell command inside Artificer-X's app-private terminal sandbox and returns stdout/stderr.",
+    parameters = buildJsonObject {
+        put("type", "object")
+        putJsonObject("properties") {
+            putJsonObject("command") { put("type", "string") }
+            putJsonObject("timeout_seconds") { put("type", "integer") }
+        }
+        putJsonArray("required") { add(JsonPrimitive("command")) }
+    }
+))
+
+private fun runTerminalBatchTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+    name = "run_terminal_batch",
+    description = "Runs multiple shell commands sequentially inside the same private terminal sandbox.",
+    parameters = buildJsonObject {
+        put("type", "object")
+        putJsonObject("properties") {
+            putJsonObject("commands") {
+                put("type", "array")
+                putJsonObject("items") { put("type", "string") }
+            }
+            putJsonObject("timeout_seconds") { put("type", "integer") }
+        }
+        putJsonArray("required") { add(JsonPrimitive("commands")) }
+    }
+))

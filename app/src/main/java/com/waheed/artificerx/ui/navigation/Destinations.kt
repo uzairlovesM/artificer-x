@@ -12,6 +12,19 @@ package com.waheed.artificerx.ui.navigation
  * strings and risk a typo breaking deep navigation.
  */
 object Destinations {
+    const val PLUGIN_CENTER = "plugin-center"
+    const val DIAGNOSTICS = "diagnostics"
+    const val TOOL_UNIVERSE = "tool-universe"
+    const val ARTIFACT_HUB = "artifact-hub"
+    const val COMMAND_CENTER = "command-center"
+    const val MEMORY_CENTER = "memory-center"
+    const val WORKFLOW_LAB = "workflow-lab"
+    const val MODEL_PLAYGROUND = "model-playground"
+    const val SECURITY_CENTER = "security-center"
+    const val WORKSPACE_SEARCH = "workspace-search"
+    const val WORKSPACE_EXPORT = "workspace-export"
+    const val WORKSPACE_IMPORT = "workspace-import"
+
     // Onboarding / cold-start
     const val ONBOARDING_WELCOME = "onboarding/welcome"
     const val ONBOARDING_PROVIDER_SETUP = "onboarding/provider_setup"
@@ -27,6 +40,30 @@ object Destinations {
     const val SHOW_PROCESS = "studio/show_process"
     const val SCULPT_STUDIO = "studio/sculpt"
     const val MAPS = "studio/maps"
+
+    // Pro art / ibisPaint-inspired editor modules
+    const val PRO_ART_STUDIO = "studio/pro_art"
+    const val BRUSH_LAB = "studio/brush_lab"
+    const val LAYER_LAB = "studio/layer_lab"
+    const val FILTER_LAB = "studio/filter_lab"
+    const val RULER_LAB = "studio/ruler_lab"
+    const val ANIMATION_LAB = "studio/animation_lab"
+    const val MATERIAL_LAB = "studio/material_lab"
+    const val MANGA_PAGE_LAB = "studio/manga_page_lab"
+    const val COLOR_STUDIO = "studio/color_studio"
+    const val TEXT_STUDIO = "studio/text_studio"
+    const val REFERENCE_STUDIO = "studio/reference_studio"
+
+    // Runtime / intelligence control centers
+    const val AGENT_WORKBENCH = "ai/agent_workbench"
+    const val PERMISSIONS_STORAGE = "system/permissions_storage"
+    const val WORKSPACE_FILES = "system/workspace_files"
+    const val AUTOMATION_CENTER = "system/automation_center"
+    const val WORKSPACE_SEARCH_ADVANCED = "system/workspace_search_advanced"
+    const val AGENT_TIMELINE = "ai/agent_timeline"
+    const val EXTREME_CONTROL_CENTER = "system/extreme_control_center"
+    const val SYSTEM_OBSERVATORY = "system/system_observatory"
+    const val CUSTOM_BRUSH_DESIGNER = "studio/custom_brush_designer"
 
     // Project management
     const val PROJECT_GALLERY = "projects/gallery"

@@ -6,6 +6,7 @@ import com.waheed.artificerx.data.local.db.ProjectVersionDao
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -30,23 +31,19 @@ class StorageStatsRepository
         @ApplicationContext private val context: Context,
         private val projectDao: ProjectDao,
         private val versionDao: ProjectVersionDao,
+        private val workspaceFileSystem: com.waheed.artificerx.core.storage.WorkspaceFileSystem,
     ) {
         suspend fun computeStats(): StorageStats =
             withContext(Dispatchers.IO) {
                 val projectCount = projectDao.getProjectCount()
 
-                var totalVersions = 0
-                val projects =
-                    context.let { projectDao }.let {
-                        // getProjectCount already queried; fetch IDs via a lightweight pass
-                        emptyList<String>()
-                    }
+                val projects = projectDao.observeAllProjects().first()
+                val totalVersions = projects.sumOf { versionDao.getVersionCountForProject(it.id) }
 
                 val dbFile = context.getDatabasePath("artificerx.db")
                 val dbSize = if (dbFile.exists()) dbFile.length() else 0L
 
-                val appDataDir = context.filesDir.parentFile
-                val appDataSize = appDataDir?.let { calculateDirectorySize(it) } ?: 0L
+                val appDataSize = calculateDirectorySize(workspaceFileSystem.roots.root)
 
                 StorageStats(
                     projectCount = projectCount,

@@ -18,6 +18,10 @@ import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.FileCopy
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Speed
@@ -55,6 +59,16 @@ fun SettingsRootScreen(
     onOpenBackupRestore: () -> Unit,
     onOpenAccessibility: () -> Unit,
     onOpenAbout: () -> Unit,
+    onOpenPlugins: () -> Unit,
+    onOpenDiagnostics: () -> Unit,
+    onOpenTools: () -> Unit,
+    onOpenArtifacts: () -> Unit,
+    onOpenCommandCenter: () -> Unit,
+    onOpenMemory: () -> Unit,
+    onOpenWorkflow: () -> Unit,
+    onOpenModelPlayground: () -> Unit,
+    onOpenSecurity: () -> Unit,
+    onOpenWorkspaceSearch: () -> Unit,
 ) {
     Box(
         modifier =
@@ -127,6 +141,36 @@ fun SettingsRootScreen(
                     subtitle = "Content descriptions, contrast, text size",
                     onClick = onOpenAccessibility,
                 )
+                SettingsRow(
+                    icon = Icons.Filled.Extension,
+                    title = "Plugin Center",
+                    subtitle = "AI, model, image, file, code, canvas, sculpt, web and automation capabilities",
+                    onClick = onOpenPlugins,
+                )
+                SettingsRow(
+                    icon = Icons.Filled.Build,
+                    title = "System Diagnostics",
+                    subtitle = "Feature wiring, runtime capability checks and health matrix",
+                    onClick = onOpenDiagnostics,
+                )
+                SettingsRow(
+                    icon = Icons.Filled.Terminal,
+                    title = "Tool Universe",
+                    subtitle = "Search and inspect the complete AI capability registry",
+                    onClick = onOpenTools,
+                )
+                SettingsRow(
+                    icon = Icons.Filled.FileCopy,
+                    title = "Artifact Hub",
+                    subtitle = "Browse, share and clean generated files and ZIP artifacts",
+                    onClick = onOpenArtifacts,
+                )
+                SettingsRow(icon = Icons.Filled.Build, title = "Command Center", subtitle = "Runtime topology, feature contracts and power actions", onClick = onOpenCommandCenter)
+                SettingsRow(icon = Icons.Filled.Memory, title = "Memory Vault", subtitle = "Persistent local AI memory and recall", onClick = onOpenMemory)
+                SettingsRow(icon = Icons.Filled.Build, title = "Workflow Lab", subtitle = "Save, run and inspect multi-step automation", onClick = onOpenWorkflow)
+                SettingsRow(icon = Icons.Filled.Speed, title = "Model Playground", subtitle = "Provider capability routing and quota visibility", onClick = onOpenModelPlayground)
+                SettingsRow(icon = Icons.Filled.Terminal, title = "Security Center", subtitle = "Sandbox and command safety policy", onClick = onOpenSecurity)
+                SettingsRow(icon = Icons.Filled.FileCopy, title = "Universal Search", subtitle = "Search chats, messages and artifacts together", onClick = onOpenWorkspaceSearch)
                 SettingsRow(
                     icon = Icons.Filled.Info,
                     title = "About ARTIFICER-X",

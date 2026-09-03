@@ -25,6 +25,9 @@ data class CanvasLayer(
     val opacity: Float = 1f,
     val blendMode: LayerBlendMode = LayerBlendMode.NORMAL,
     val orderIndex: Int,
+    val clipToBelow: Boolean = false,
+    val alphaLock: Boolean = false,
+    val isReference: Boolean = false,
 )
 
 enum class DrawToolType {

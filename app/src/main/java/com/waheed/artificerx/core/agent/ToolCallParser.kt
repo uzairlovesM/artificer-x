@@ -265,9 +265,54 @@ object ToolCallParser {
                 )
             "inspect_scene" -> ParsedToolCall.InspectScene
             "finish_turn" ->
-                ParsedToolCall.FinishTurn(
-                    summary = args["summary"]?.jsonPrimitive?.contentOrNull ?: "Done.",
-                )
+                ParsedToolCall.FinishTurn(summary = args["summary"]?.jsonPrimitive?.contentOrNull ?: "Done.")
+            "remember" -> ParsedToolCall.Remember(
+                key = args["key"]?.jsonPrimitive?.contentOrNull ?: "fact",
+                value = args["value"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                namespace = args["namespace"]?.jsonPrimitive?.contentOrNull ?: "global",
+            )
+            "recall" -> ParsedToolCall.Recall(
+                query = args["query"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                namespace = args["namespace"]?.jsonPrimitive?.contentOrNull ?: "global",
+            )
+            "generate_image" -> ParsedToolCall.GenerateImage(
+                prompt = args["prompt"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                size = args["size"]?.jsonPrimitive?.contentOrNull ?: "1024x1024",
+                model = args["model"]?.jsonPrimitive?.contentOrNull,
+            )
+            "read_workspace_file" -> ParsedToolCall.ReadWorkspaceFile(args["path"]?.jsonPrimitive?.contentOrNull ?: "", args["max_chars"]?.jsonPrimitive?.intOrNull ?: 100000)
+            "write_workspace_file" -> ParsedToolCall.WriteWorkspaceFile(args["path"]?.jsonPrimitive?.contentOrNull ?: "", args["content"]?.jsonPrimitive?.contentOrNull ?: "")
+            "list_workspace_directory" -> ParsedToolCall.ListWorkspaceDirectory(args["path"]?.jsonPrimitive?.contentOrNull ?: "")
+            "replace_workspace_text" -> ParsedToolCall.ReplaceWorkspaceText(args["path"]?.jsonPrimitive?.contentOrNull ?: "", args["old"]?.jsonPrimitive?.contentOrNull ?: "", args["new"]?.jsonPrimitive?.contentOrNull ?: "", args["all"]?.jsonPrimitive?.booleanOrNull ?: false)
+            "create_file" -> ParsedToolCall.CreateFile(
+                fileName = args["file_name"]?.jsonPrimitive?.contentOrNull ?: "artifact.txt",
+                content = args["content"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                mimeType = args["mime_type"]?.jsonPrimitive?.contentOrNull ?: "text/plain",
+            )
+            "create_zip" -> ParsedToolCall.CreateZip(
+                fileName = args["file_name"]?.jsonPrimitive?.contentOrNull ?: "artificerx-output.zip",
+                filesJson = args["files_json"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+            )
+            "run_terminal_command" -> ParsedToolCall.RunTerminalCommand(
+                command = args["command"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                timeoutSeconds = args["timeout_seconds"]?.jsonPrimitive?.intOrNull ?: 20,
+            )
+            "run_terminal_batch" -> ParsedToolCall.RunTerminalBatch(
+                commands = (args["commands"] as? JsonArray)?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList(),
+                timeoutSeconds = args["timeout_seconds"]?.jsonPrimitive?.intOrNull ?: 20,
+            )
+            "list_artifacts" -> ParsedToolCall.ListArtifacts(args["query"]?.jsonPrimitive?.contentOrNull)
+            "search_workspace" -> ParsedToolCall.SearchWorkspace(args["query"]?.jsonPrimitive?.contentOrNull ?: "")
+            "artifact_info" -> ParsedToolCall.ArtifactInfo(args["artifact_id"]?.jsonPrimitive?.contentOrNull ?: "")
+            "checksum_artifact" -> ParsedToolCall.ChecksumArtifact(args["artifact_id"]?.jsonPrimitive?.contentOrNull ?: "")
+            "get_workspace_status" -> ParsedToolCall.WorkspaceStatus
+            "export_workspace_bundle" -> ParsedToolCall.ExportWorkspaceBundle
+            // The old dynamic "_tool_" catalog (3,000 auto-generated
+            // placeholder names) was removed as dead/fake capability —
+            // see ToolRegistry's note. Any unrecognized tool name now
+            // consistently reports as Unknown so the LLM gets a real,
+            // actionable error (with the real tool list) instead of a
+            // silent fake success from the old router.
             else -> ParsedToolCall.Unknown(toolCall.function.name)
         }
     }

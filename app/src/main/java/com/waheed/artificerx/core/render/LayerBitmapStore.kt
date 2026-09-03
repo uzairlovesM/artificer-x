@@ -1,7 +1,12 @@
 package com.waheed.artificerx.core.render
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import com.waheed.artificerx.core.storage.WorkspaceFileSystem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -24,7 +29,9 @@ import javax.inject.Singleton
 @Singleton
 class LayerBitmapStore
     @Inject
-    constructor() {
+    constructor(
+        private val workspaceFileSystem: WorkspaceFileSystem,
+    ) {
         private val bitmaps = ConcurrentHashMap<String, Bitmap>()
         private val canvases = ConcurrentHashMap<String, Canvas>()
 
@@ -318,6 +325,33 @@ class LayerBitmapStore
 
         /** Total memory footprint estimate — used by Section 137's
          *  thermal/memory-awareness gating before allowing new layers. */
+        suspend fun saveProject(projectId: String) = withContext(Dispatchers.IO) {
+            val dir = workspaceFileSystem.projectDir(projectId).resolve("layers").also { it.mkdirs() }
+            val liveIds = bitmaps.keys.toSet()
+            bitmaps.forEach { (layerId, bitmap) ->
+                val file = dir.resolve("${safeSegment(layerId)}.png")
+                file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            }
+            dir.listFiles()?.filter { it.isFile && it.extension == "png" && it.nameWithoutExtension !in liveIds.map(::safeSegment) }?.forEach { it.delete() }
+        }
+
+        suspend fun loadProject(projectId: String, layerIds: List<String>, widthPx: Int, heightPx: Int) = withContext(Dispatchers.IO) {
+            val dir = workspaceFileSystem.projectDir(projectId).resolve("layers")
+            layerIds.forEach { layerId ->
+                val file = dir.resolve("${safeSegment(layerId)}.png")
+                if (!file.exists()) return@forEach
+                runCatching {
+                    val decoded = BitmapFactory.decodeFile(file.absolutePath) ?: return@runCatching
+                    val bitmap = if (decoded.width == widthPx && decoded.height == heightPx) decoded else Bitmap.createScaledBitmap(decoded, widthPx, heightPx, true).also { if (it !== decoded) decoded.recycle() }
+                    bitmaps[layerId]?.recycle()
+                    bitmaps[layerId] = bitmap
+                    canvases[layerId] = Canvas(bitmap)
+                }
+            }
+        }
+
+        private fun safeSegment(value: String): String = value.replace(Regex("[^A-Za-z0-9._-]"), "_").take(120)
+
         fun estimateTotalBytes(): Long = bitmaps.values.sumOf { it.byteCount.toLong() }
 
         companion object {

@@ -12,17 +12,17 @@ import androidx.compose.ui.graphics.Color
  *
  * Core brand
  */
-val GoldPrimary = Color(0xFFFFD700)
-val GoldPrimaryDim = Color(0xFFB8960A)
-val GoldPrimaryContainer = Color(0xFF3A2E00)
-val GoldAccentSoft = Color(0xFFF2C94C)
+val GoldPrimary = Color(0xFFD97757)
+val GoldPrimaryDim = Color(0xFFA4513A)
+val GoldPrimaryContainer = Color(0xFF3A241F)
+val GoldAccentSoft = Color(0xFFE3A389)
 
-val PurpleBase00 = Color(0xFF1A0A2E) // deepest background
-val PurpleBase01 = Color(0xFF241238) // surface
-val PurpleBase02 = Color(0xFF2E1846) // elevated surface / cards
-val PurpleBase03 = Color(0xFF3A2054) // highest elevation / dialogs
-val PurpleAccent = Color(0xFF7B4FE0)
-val PurpleAccentDim = Color(0xFF5A3AA8)
+val PurpleBase00 = Color(0xFF1F1D1A) // deepest background
+val PurpleBase01 = Color(0xFF272522) // surface
+val PurpleBase02 = Color(0xFF302D28) // elevated surface / cards
+val PurpleBase03 = Color(0xFF39352F) // highest elevation / dialogs
+val PurpleAccent = Color(0xFF9A6B5B)
+val PurpleAccentDim = Color(0xFF765146)
 
 // ── Glassmorphism surfaces (semi-transparent overlays) ──
 val GlassSurfaceLight = Color(0x1FFFFFFF) // 12% white overlay
@@ -40,15 +40,15 @@ val InfoBlue = Color(0xFF5CA8FF)
 val QualityPass = Color(0xFF3DDC97)
 val QualityWarn = Color(0xFFFFB020)
 val QualityFail = Color(0xFFFF5C7C)
-val AgentThinking = Color(0xFF7B4FE0)
-val AgentToolCalling = Color(0xFFFFD700)
+val AgentThinking = Color(0xFF9A6B5B)
+val AgentToolCalling = Color(0xFFD97757)
 val AgentIdle = Color(0xFF6B6480)
 
 // ── Canvas / layer panel neutrals ──
 val CanvasCheckerLight = Color(0xFF2A1F3D)
 val CanvasCheckerDark = Color(0xFF1F1530)
 val LayerPanelBackground = Color(0xFF150A24)
-val OnGoldText = Color(0xFF1A0A2E)
+val OnGoldText = Color(0xFF1F1D1A)
 val OnPurpleText = Color(0xFFF5F0FF)
 val OnPurpleTextMuted = Color(0xFFB8ADD1)
 

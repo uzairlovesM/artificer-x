@@ -264,6 +264,25 @@ sealed class ParsedToolCall {
         val summary: String,
     ) : ParsedToolCall()
 
+    data class ReadWorkspaceFile(val path: String, val maxChars: Int) : ParsedToolCall()
+    data class WriteWorkspaceFile(val path: String, val content: String) : ParsedToolCall()
+    data class ListWorkspaceDirectory(val path: String) : ParsedToolCall()
+    data class ReplaceWorkspaceText(val path: String, val old: String, val new: String, val all: Boolean) : ParsedToolCall()
+    data class CreateFile(val fileName: String, val content: String, val mimeType: String) : ParsedToolCall()
+    data class CreateZip(val fileName: String, val filesJson: String) : ParsedToolCall()
+    data class RunTerminalCommand(val command: String, val timeoutSeconds: Int) : ParsedToolCall()
+    data class RunTerminalBatch(val commands: List<String>, val timeoutSeconds: Int) : ParsedToolCall()
+    data class GenerateImage(val prompt: String, val size: String, val model: String?) : ParsedToolCall()
+    data class Remember(val key: String, val value: String, val namespace: String) : ParsedToolCall()
+    data class Recall(val query: String, val namespace: String) : ParsedToolCall()
+    data class Dynamic(val name: String, val argsJson: String) : ParsedToolCall()
+    data class ListArtifacts(val query: String?) : ParsedToolCall()
+    data class SearchWorkspace(val query: String) : ParsedToolCall()
+    data class ArtifactInfo(val artifactId: String) : ParsedToolCall()
+    data class ChecksumArtifact(val artifactId: String) : ParsedToolCall()
+    object WorkspaceStatus : ParsedToolCall()
+    object ExportWorkspaceBundle : ParsedToolCall()
+
     data class Unknown(
         val toolName: String,
     ) : ParsedToolCall()

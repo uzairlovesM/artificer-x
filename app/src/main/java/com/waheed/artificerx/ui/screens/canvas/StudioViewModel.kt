@@ -1,5 +1,9 @@
 package com.waheed.artificerx.ui.screens.canvas
 
+import com.waheed.artificerx.core.art.RulerEngine
+import com.waheed.artificerx.core.art.AnimationFrameStore
+import com.waheed.artificerx.core.art.MangaLayoutStore
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.waheed.artificerx.core.security.EncryptedKeyStore
@@ -38,13 +42,18 @@ class StudioViewModel
         private val projectRepository: com.waheed.artificerx.data.repository.ProjectRepository,
         private val bitmapStore: com.waheed.artificerx.core.render.LayerBitmapStore,
         private val compositor: com.waheed.artificerx.core.render.CanvasCompositor,
-        private val timelapseRecorder: com.waheed.artificerx.core.timelapse.TimelapseRecorder,
+        private val timelapseRecorder: com.waheed.artificerx.core.timelapse.TimelapseRecorder,,
+        private val animationFrameStore: AnimationFrameStore,
+        private val mangaLayoutStore: MangaLayoutStore,
+    
     ) : ViewModel() {
         private val _compositedBitmap = kotlinx.coroutines.flow.MutableStateFlow<android.graphics.Bitmap?>(null)
         val compositedBitmap: kotlinx.coroutines.flow.StateFlow<android.graphics.Bitmap?> = _compositedBitmap.asStateFlow()
 
         private var recompositeJob: kotlinx.coroutines.Job? = null
         private var pendingAttachedImage: android.graphics.Bitmap? = null
+
+        private val rulerEngine = RulerEngine()
 
         private val _state =
             MutableStateFlow(
@@ -61,6 +70,7 @@ class StudioViewModel
         val state: StateFlow<CanvasProjectState> = _state.asStateFlow()
 
         private var autoSaveJob: kotlinx.coroutines.Job? = null
+        private var pixelSaveJob: kotlinx.coroutines.Job? = null
         private var lastSavedStateHash: Int = 0
 
         init {
@@ -84,6 +94,7 @@ class StudioViewModel
          *  are on the back stack), cancelled in onCleared(). */
         private fun startPeriodicAutoSave() {
             autoSaveJob?.cancel()
+            pixelSaveJob?.cancel()
             autoSaveJob =
                 viewModelScope.launch {
                     while (true) {
@@ -141,11 +152,9 @@ class StudioViewModel
                     // the full periodic interval.
                     val currentHash = current.layers.hashCode() * 31 + current.projectName.hashCode()
                     if (currentHash != lastSavedStateHash) {
-                        runCatching {
-                            projectRepository.saveCurrentState(current)
-                            lastSavedStateHash = currentHash
-                        }
+                        runCatching { projectRepository.saveCurrentState(current); lastSavedStateHash = currentHash }
                     }
+                    schedulePixelSave(current.projectId)
                 }
         }
 
@@ -250,12 +259,15 @@ class StudioViewModel
         }
 
         fun deleteLayer(layerId: String) {
+            val shouldDelete = _state.value.layers.size > 1 && _state.value.layers.any { it.id == layerId }
+            if (!shouldDelete) return
+            bitmapStore.removeLayer(layerId)
             _state.update { current ->
-                if (current.layers.size <= 1) return@update current
                 val remaining = current.layers.filterNot { it.id == layerId }
                 val newActive = if (current.activeLayerId == layerId) remaining.lastOrNull()?.id else current.activeLayerId
                 current.copy(layers = remaining, activeLayerId = newActive)
             }
+            recomposite()
         }
 
         fun setActiveLayer(layerId: String) {
@@ -344,15 +356,26 @@ class StudioViewModel
 
             val weights = if (current.toolState.pressureSimulationEnabled) simulatePressureWeights(points) else null
             variants.forEach { variant ->
-                compositor.drawPath(
-                    layerId = activeLayerId,
-                    points = variant,
-                    colorHex = current.toolState.brushColorHex,
-                    strokeWidthPx = current.toolState.brushSizePx,
-                    opacity = current.toolState.brushOpacity,
-                    brushType = current.toolState.brushType,
-                    pointWeights = weights,
-                )
+                if (activeLayer?.alphaLock == true) {
+                    compositor.drawPathAlphaLocked(
+                        layerId = activeLayerId,
+                        points = variant,
+                        colorHex = current.toolState.brushColorHex,
+                        strokeWidthPx = current.toolState.brushSizePx,
+                        opacity = current.toolState.brushOpacity,
+                        brushType = current.toolState.brushType,
+                    )
+                } else {
+                    compositor.drawPath(
+                        layerId = activeLayerId,
+                        points = variant,
+                        colorHex = current.toolState.brushColorHex,
+                        strokeWidthPx = current.toolState.brushSizePx,
+                        opacity = current.toolState.brushOpacity,
+                        brushType = current.toolState.brushType,
+                        pointWeights = weights,
+                    )
+                }
             }
             recomposite()
         }
@@ -737,6 +760,54 @@ class StudioViewModel
             recomposite()
         }
 
+        fun addTextLayer(text: String, fontSizePx: Float = 48f, colorHex: String = "#191918", bold: Boolean = false) {
+            if (text.isBlank()) return
+            val active = _state.value.activeLayerId ?: return
+            val layer = _state.value.layers.firstOrNull { it.id == active } ?: return
+            if (layer.isLocked) return
+            bitmapStore.ensureLayer(active, _state.value.canvasWidthPx, _state.value.canvasHeightPx)
+            bitmapStore.pushUndoSnapshot()
+            if (compositor.addText(active, text, 80f, 140f, fontSizePx, colorHex, bold)) recomposite()
+        }
+
+        fun applyActiveFilter(filterType: String, intensity: Float = 1f) {
+            val active = _state.value.activeLayerId ?: return
+            val layer = _state.value.layers.firstOrNull { it.id == active } ?: return
+            if (layer.isLocked) return
+            bitmapStore.ensureLayer(active, _state.value.canvasWidthPx, _state.value.canvasHeightPx)
+            bitmapStore.pushUndoSnapshot()
+            if (compositor.applyFilter(active, filterType, intensity)) recomposite()
+        }
+
+        fun applyRulerSnap(points: List<Float>, mode: RulerEngine.Mode, anchorX: Float, anchorY: Float, radialSteps: Int = 8): List<Float> =
+            rulerEngine.snap(points, mode, anchorX, anchorY, radialSteps)
+
+        fun setLayerClipping(layerId: String, enabled: Boolean) {
+            _state.update { current -> current.copy(layers = current.layers.map { if (it.id == layerId) it.copy(clipToBelow = enabled) else it }) }
+            recomposite()
+        }
+
+        fun setLayerAlphaLock(layerId: String, enabled: Boolean) {
+            _state.update { current -> current.copy(layers = current.layers.map { if (it.id == layerId) it.copy(alphaLock = enabled) else it }) }
+        }
+
+        fun applyMaterialPattern(patternType: String, scalePx: Float = 16f, colorHex: String = "#555555") {
+            val current = _state.value; val active = current.activeLayerId ?: return
+            val layer = current.layers.firstOrNull { it.id == active } ?: return
+            if (layer.isLocked) return
+            bitmapStore.pushUndoSnapshot(); bitmapStore.ensureLayer(active, current.canvasWidthPx, current.canvasHeightPx)
+            if (compositor.applyPattern(active, patternType, 0f, 0f, current.canvasWidthPx.toFloat(), current.canvasHeightPx.toFloat(), colorHex, scalePx)) recomposite()
+        }
+
+        fun captureAnimationFrame(frameIndex: Int) {
+            val projectId = _state.value.projectId
+            viewModelScope.launch { animationFrameStore.saveFrame(projectId, frameIndex, captureSnapshotNow()) }
+        }
+
+        fun saveMangaLayout(page: com.waheed.artificerx.core.art.MangaPage) {
+            viewModelScope.launch { mangaLayoutStore.save(_state.value.projectId, page) }
+        }
+
         fun setBrushSize(sizePx: Float) {
             _state.update { it.copy(toolState = it.toolState.copy(brushSizePx = sizePx)) }
         }
@@ -752,13 +823,26 @@ class StudioViewModel
             // crash-safe save must complete before the process dies, not
             // "eventually."
             runCatching {
+                kotlinx.coroutines.runBlocking { bitmapStore.saveProject(_state.value.projectId) }
                 projectRepository.saveCurrentStateBlocking(_state.value)
             }
         }
 
         fun saveNow() {
+            pixelSaveJob?.cancel()
             viewModelScope.launch {
-                projectRepository.saveCurrentState(_state.value)
+                val snapshot = _state.value
+                bitmapStore.saveProject(snapshot.projectId)
+                projectRepository.saveCurrentState(snapshot)
+                lastSavedStateHash = snapshot.layers.hashCode() * 31 + snapshot.projectName.hashCode()
+            }
+        }
+
+        private fun schedulePixelSave(projectId: String) {
+            pixelSaveJob?.cancel()
+            pixelSaveJob = viewModelScope.launch {
+                kotlinx.coroutines.delay(650)
+                bitmapStore.saveProject(projectId)
             }
         }
 
@@ -780,8 +864,11 @@ class StudioViewModel
                     // longer correspond to this project's layers — undoing
                     // "past" this point would restore stale, unrelated
                     // pixel data, so history must reset at load boundaries.
-                    bitmapStore.clearHistory()
+                    bitmapStore.clearAll()
+                    bitmapStore.loadProject(loaded.projectId, loaded.layers.map { it.id }, loaded.canvasWidthPx, loaded.canvasHeightPx)
+                    loaded.layers.forEach { layer -> bitmapStore.ensureLayer(layer.id, loaded.canvasWidthPx, loaded.canvasHeightPx) }
                     _state.value = loaded.copy(undoStackSize = 0, redoStackSize = 0)
+                    recomposite()
                 }
             }
         }

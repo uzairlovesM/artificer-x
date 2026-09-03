@@ -75,6 +75,28 @@ class CanvasCompositor
             return true
         }
 
+        /** Alpha-lock drawing: the new pixels are constrained to the pre-existing alpha mask. */
+        fun drawPathAlphaLocked(
+            layerId: String,
+            points: List<Float>,
+            colorHex: String?,
+            strokeWidthPx: Float?,
+            opacity: Float?,
+            brushType: com.waheed.artificerx.domain.model.BrushType,
+        ): Boolean {
+            val bitmap = bitmapStore.getBitmap(layerId) ?: return false
+            val canvas = bitmapStore.getCanvas(layerId) ?: return false
+            if (points.size < 4) return false
+            val alphaMask = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+            val drawn = drawPath(layerId, points, colorHex, strokeWidthPx, opacity, brushType)
+            if (!drawn) { alphaMask.recycle(); return false }
+            val maskPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN) }
+            canvas.drawBitmap(alphaMask, 0f, 0f, maskPaint)
+            maskPaint.xfermode = null
+            alphaMask.recycle()
+            return true
+        }
+
         /** True transparency erase — Paint.Style.STROKE with an XOR/CLEAR
          *  Xfermode along the path, so it actually punches a hole down to
          *  alpha=0 regardless of what color is underneath. v0.4.30 fix:
@@ -1089,24 +1111,39 @@ class CanvasCompositor
             val output = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(output)
             canvas.drawColor(Color.WHITE)
+            val ordered = layers.sortedBy { it.orderIndex }
 
-            layers.sortedBy { it.orderIndex }.forEach { layer ->
-                if (!layer.isVisible) return@forEach
-                val layerBitmap = bitmapStore.getBitmap(layer.id) ?: return@forEach
+            ordered.forEachIndexed { index, layer ->
+                if (!layer.isVisible) return@forEachIndexed
+                val rawBitmap = bitmapStore.getBitmap(layer.id) ?: return@forEachIndexed
+                val below = ordered.take(index).asReversed().firstOrNull { it.isVisible && bitmapStore.getBitmap(it.id) != null }
+                val layerBitmap = if (layer.clipToBelow && below != null) {
+                    createAlphaClippedBitmap(rawBitmap, bitmapStore.getBitmap(below.id)!!)
+                } else rawBitmap
 
                 if (requiresManualBlend(layer.blendMode)) {
                     blendManually(output, layerBitmap, layer.blendMode, layer.opacity.coerceIn(0f, 1f))
                 } else {
-                    val paint =
-                        Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                            alpha = (layer.opacity.coerceIn(0f, 1f) * 255).toInt()
-                            xfermode = blendModeToPorterDuff(layer.blendMode)
-                        }
+                    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        alpha = (layer.opacity.coerceIn(0f, 1f) * 255).toInt()
+                        xfermode = blendModeToPorterDuff(layer.blendMode)
+                    }
                     canvas.drawBitmap(layerBitmap, 0f, 0f, paint)
                 }
+                if (layerBitmap !== rawBitmap) layerBitmap.recycle()
             }
-
             return output
+        }
+
+        private fun createAlphaClippedBitmap(source: Bitmap, mask: Bitmap): Bitmap {
+            val clipped = source.copy(Bitmap.Config.ARGB_8888, true)
+            val maskCopy = if (mask.config == Bitmap.Config.ARGB_8888) mask else mask.copy(Bitmap.Config.ARGB_8888, false)
+            val c = Canvas(clipped)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN) }
+            c.drawBitmap(maskCopy, 0f, 0f, paint)
+            paint.xfermode = null
+            if (maskCopy !== mask) maskCopy.recycle()
+            return clipped
         }
 
         private fun requiresManualBlend(mode: LayerBlendMode): Boolean =

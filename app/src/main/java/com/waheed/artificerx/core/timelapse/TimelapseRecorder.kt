@@ -1,12 +1,11 @@
 package com.waheed.artificerx.core.timelapse
 
-import android.content.Context
 import android.graphics.Bitmap
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import com.waheed.artificerx.core.storage.WorkspaceFileSystem
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -43,7 +42,7 @@ import javax.inject.Singleton
 class TimelapseRecorder
     @Inject
     constructor(
-        @ApplicationContext private val context: Context,
+        private val workspaceFileSystem: WorkspaceFileSystem,
     ) {
         private val lastCaptureAtByProject = mutableMapOf<String, Long>()
 
@@ -86,7 +85,7 @@ class TimelapseRecorder
             }
         }
 
-        private fun projectDir(projectId: String): File = File(context.filesDir, "$TIMELAPSE_DIR_NAME/$projectId")
+        private fun projectDir(projectId: String): File = workspaceFileSystem.projectDir(projectId).resolve(TIMELAPSE_DIR_NAME).also { it.mkdirs() }
 
         private fun downscale(
             bitmap: Bitmap,

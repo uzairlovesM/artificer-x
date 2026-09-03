@@ -7,6 +7,7 @@ import com.waheed.artificerx.core.agent.AgentOrchestrator
 import com.waheed.artificerx.core.export.ImageExporter
 import com.waheed.artificerx.core.network.ChatMessageDto
 import com.waheed.artificerx.data.repository.ProviderConfigRepository
+import com.waheed.artificerx.data.local.datastore.ChatSessionDataStore
 import com.waheed.artificerx.domain.model.AgentActivityState
 import com.waheed.artificerx.domain.model.ChatMessage
 import com.waheed.artificerx.domain.model.ChatMessageRole
@@ -17,12 +18,20 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 
 data class AgentChatUiState(
+    val activeThreadId: String = "",
+    val threadTitles: Map<String, String> = emptyMap(),
+    val artifactCount: Int = 0,
     val messages: List<ChatMessage> = emptyList(),
     val inputText: String = "",
     val isAgentResponding: Boolean = false,
@@ -58,6 +67,9 @@ class AgentChatViewModel
         private val providerConfigRepository: ProviderConfigRepository,
         private val agentOrchestrator: AgentOrchestrator,
         private val imageExporter: ImageExporter,
+        private val workspaceRepository: com.waheed.artificerx.data.repository.ChatWorkspaceRepository,
+        private val chatSessionDataStore: ChatSessionDataStore,
+        private val responseArtifactMaterializer: com.waheed.artificerx.core.agent.AIResponseArtifactMaterializer,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(AgentChatUiState())
         val uiState: StateFlow<AgentChatUiState> = _uiState.asStateFlow()
@@ -73,10 +85,63 @@ class AgentChatViewModel
         // MAX_ITERATIONS safety limit could end one early).
         private var currentTurnJob: kotlinx.coroutines.Job? = null
 
+        private val persistJobs = mutableMapOf<String, kotlinx.coroutines.Job>()
+
         init {
+            viewModelScope.launch {
+                workspaceRepository.observeThreads().collect { threads ->
+                    _uiState.update { state -> state.copy(threadTitles = threads.associate { it.id to it.title }) }
+                    if (_uiState.value.activeThreadId.isBlank()) {
+                        val savedId = chatSessionDataStore.getActiveThreadId()
+                        val savedThreadStillExists = savedId?.let { id -> threads.any { it.id == id } } == true
+                        val id = if (savedThreadStillExists) savedId!! else (threads.firstOrNull()?.id ?: workspaceRepository.createThread())
+                        if (!savedThreadStillExists) chatSessionDataStore.setActiveThreadId(id)
+                        val messages = workspaceRepository.loadMessages(id)
+                        val artifactCount = workspaceRepository.observeArtifacts(id).first().size
+                        _uiState.update { it.copy(activeThreadId = id, messages = messages, artifactCount = artifactCount) }
+                    }
+                }
+            }
             viewModelScope.launch {
                 val hasProvider = providerConfigRepository.hasAnyProviderConfigured()
                 _uiState.update { it.copy(hasConfiguredProvider = hasProvider) }
+            }
+            viewModelScope.launch {
+                _uiState
+                    .map { it.activeThreadId }
+                    .filter(String::isNotBlank)
+                    .distinctUntilChanged()
+                    .flatMapLatest { workspaceRepository.observeArtifacts(it) }
+                    .collect { artifacts -> _uiState.update { state -> state.copy(artifactCount = artifacts.size) } }
+            }
+        }
+
+        fun switchThread(threadId: String) {
+            if (threadId.isBlank() || threadId == _uiState.value.activeThreadId) return
+            viewModelScope.launch {
+                val messages = workspaceRepository.loadMessages(threadId)
+                val artifactCount = workspaceRepository.observeArtifacts(threadId).first().size
+                chatSessionDataStore.setActiveThreadId(threadId)
+                _uiState.update { it.copy(activeThreadId = threadId, messages = messages, artifactCount = artifactCount, inputText = "") }
+            }
+        }
+
+        fun newThread() {
+            viewModelScope.launch {
+                val id = workspaceRepository.createThread()
+                chatSessionDataStore.setActiveThreadId(id)
+                _uiState.update { it.copy(activeThreadId = id, messages = emptyList(), inputText = "", artifactCount = 0) }
+            }
+        }
+
+        fun deleteActiveThread() {
+            val id = _uiState.value.activeThreadId
+            if (id.isBlank()) return
+            viewModelScope.launch {
+                workspaceRepository.deleteThreadForever(id)
+                val fresh = workspaceRepository.createThread()
+                chatSessionDataStore.setActiveThreadId(fresh)
+                _uiState.update { it.copy(activeThreadId = fresh, messages = emptyList(), artifactCount = 0) }
             }
         }
 
@@ -141,6 +206,14 @@ class AgentChatViewModel
                     isAgentResponding = true,
                     lastErrorMessage = null,
                 )
+            }
+
+            viewModelScope.launch {
+                if (state.messages.none { it.role == ChatMessageRole.USER }) {
+                    workspaceRepository.renameThread(state.activeThreadId, text.take(52).replace("\n", " "))
+                }
+                workspaceRepository.saveMessage(_uiState.value.activeThreadId, userMessage)
+                workspaceRepository.saveMessage(_uiState.value.activeThreadId, agentPlaceholder)
             }
 
             studioViewModel?.setAgentActivity(AgentActivityState.THINKING)
@@ -261,8 +334,12 @@ class AgentChatViewModel
                 }
 
                 is AgentEvent.ToolCallSucceeded -> {
+                    val mediaUri = Regex("MEDIA_URI=([^\n]+)").find(event.resultSummary)?.groupValues?.getOrNull(1)?.trim()
+                    val artifactName = Regex("ARTIFACT_NAME=([^\n]+)").find(event.resultSummary)?.groupValues?.getOrNull(1)?.trim()
                     updateAgentMessage(agentMessageId) { message ->
                         message.copy(
+                            autoSavedFileName = artifactName ?: message.autoSavedFileName,
+                            autoSavedUri = mediaUri?.let(android.net.Uri::parse) ?: message.autoSavedUri,
                             toolCalls =
                                 message.toolCalls.map {
                                     if (it.id ==
@@ -318,6 +395,27 @@ class AgentChatViewModel
                             isStreaming = false,
                         )
                     }
+                    val completedText = _uiState.value.messages.firstOrNull { it.id == agentMessageId }?.text.orEmpty()
+                    val materialized = responseArtifactMaterializer.materialize(
+                        threadId = _uiState.value.activeThreadId,
+                        response = completedText,
+                    )
+                    if (materialized.isNotEmpty()) {
+                        updateAgentMessage(agentMessageId) { message ->
+                            message.copy(
+                                toolCalls = message.toolCalls + materialized.map { artifact ->
+                                    ToolCallEntry(
+                                        id = UUID.randomUUID().toString(),
+                                        toolName = "response_artifact",
+                                        argsPreview = artifact.name,
+                                        status = ToolCallStatus.SUCCESS,
+                                        resultSummary = "Created artifact ${artifact.name} at ${artifact.path}",
+                                    )
+                                },
+                            )
+                        }
+                    }
+
                     // Auto-save (v0.4.30): every completed AI turn that touched
                     // the 2D canvas gets its result written straight to
                     // Pictures/ARTIFICER-X automatically — the user should
@@ -450,13 +548,22 @@ class AgentChatViewModel
             messageId: String,
             transform: (ChatMessage) -> ChatMessage,
         ) {
+            var changed: ChatMessage? = null
+            var threadId = ""
             _uiState.update { state ->
-                state.copy(
-                    messages =
-                        state.messages.map { message ->
-                            if (message.id == messageId) transform(message) else message
-                        },
-                )
+                val updated = state.messages.map { message -> if (message.id == messageId) transform(message) else message }
+                changed = updated.firstOrNull { it.id == messageId }
+                threadId = state.activeThreadId
+                state.copy(messages = updated)
+            }
+            changed?.let { message ->
+                persistJobs[messageId]?.cancel()
+                val immediate = !message.isStreaming
+                persistJobs[messageId] = viewModelScope.launch {
+                    if (!immediate) kotlinx.coroutines.delay(350)
+                    workspaceRepository.saveMessage(threadId, message)
+                    if (immediate) persistJobs.remove(messageId)
+                }
             }
         }
 
@@ -472,10 +579,17 @@ class AgentChatViewModel
                 }
 
         fun clearConversation() {
-            _uiState.update { it.copy(messages = emptyList()) }
+            deleteActiveThread()
         }
 
         fun dismissError() {
             _uiState.update { it.copy(lastErrorMessage = null) }
+        }
+
+        override fun onCleared() {
+            currentTurnJob?.cancel()
+            persistJobs.values.forEach { it.cancel() }
+            persistJobs.clear()
+            super.onCleared()
         }
     }

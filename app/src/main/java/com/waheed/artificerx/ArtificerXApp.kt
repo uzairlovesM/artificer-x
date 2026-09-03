@@ -64,6 +64,18 @@ class ArtificerXApp :
     @Inject
     lateinit var localInferenceEngine: com.waheed.artificerx.core.agent.LocalInferenceEngine
 
+    @Inject
+    lateinit var workspaceFileSystem: com.waheed.artificerx.core.storage.WorkspaceFileSystem
+
+    @Inject
+    lateinit var workspaceManifestService: com.waheed.artificerx.core.storage.WorkspaceManifestService
+
+    @Inject
+    lateinit var workspaceMaintenanceScheduler: com.waheed.artificerx.core.background.WorkspaceMaintenanceScheduler
+
+    @Inject
+    lateinit var automationScheduler: com.waheed.artificerx.core.automation.AutomationScheduler
+
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     // ── App-wide observable device/runtime state ──
@@ -100,6 +112,10 @@ class ArtificerXApp :
         configureOsmdroid()
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
         backupScheduler.scheduleAutoBackup()
+        workspaceFileSystem.ensureReady()
+        workspaceManifestService.refresh()
+        workspaceMaintenanceScheduler.schedule()
+        automationScheduler.scheduleDaily()
         Log.i(TAG, "ARTIFICER-X process started. debug=${isDebugBuild()}")
     }
 

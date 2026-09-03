@@ -10,6 +10,8 @@ import com.waheed.artificerx.core.network.ImageUrlDto
 import com.waheed.artificerx.core.network.StreamToolCallDeltaDto
 import com.waheed.artificerx.core.network.ToolCallDto
 import com.waheed.artificerx.data.repository.ProviderConfigRepository
+import com.waheed.artificerx.data.workspace.MemoryRepository
+import com.waheed.artificerx.core.routing.ModelRoutingPolicy
 import com.waheed.artificerx.domain.model.AiProviderConfig
 import com.waheed.artificerx.ui.screens.canvas.StudioViewModel
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +73,8 @@ class AgentOrchestrator
         private val localInferenceEngine: LocalInferenceEngine,
         private val htmlFetcher: com.waheed.artificerx.core.web.HtmlFetcher,
         private val webSearcher: com.waheed.artificerx.core.web.WebSearcher,
+        private val memoryRepository: MemoryRepository,
+        private val contextAssembler: AgentContextAssembler,
     ) {
         // Section 84/135/136/137: device-state-aware throttling. Cast
         // rather than a constructor-injected type, since ArtificerXApp
@@ -116,7 +120,8 @@ class AgentOrchestrator
             is3DMode: Boolean = false,
         ): Flow<AgentEvent> =
             flow {
-                val providers = collectUsableProviders()
+                val needs = ModelRoutingPolicy.RequestNeeds(vision = attachedImageBase64 != null, toolCalling = true, offlineOnly = !deviceStateApp.isNetworkAvailable.value)
+                val providers = collectUsableProviders(needs)
                 if (providers.isEmpty()) {
                     emit(AgentEvent.Error("No enabled AI provider is configured.", isFatal = true))
                     return@flow
@@ -160,22 +165,29 @@ class AgentOrchestrator
                 }
 
                 val agentSettings = collectAgentSettings()
-                val effectiveMaxIterations = agentSettings.effectiveMaxIterations
+                val executionBudget = AgentExecutionPolicy.budget(userText, agentSettings.effectiveMaxIterations, deviceStateApp.isNetworkAvailable.value)
+                val effectiveMaxIterations = executionBudget.maxIterations
                 val effectiveTemperature = agentSettings.effectiveTemperature
+                val artifactIntent = ArtifactIntentDetector.detect(userText)
 
                 val selectedRole = agentPlanner.selectRole(userText, is3DMode)
                 val worldModel = if (projectId != null) worldModelStore.get(projectId) else null
 
-                val messages = mutableListOf<ChatMessageDto>()
-                messages.add(systemPromptMessage(selectedRole, worldModel, agentSettings))
-                messages.addAll(conversationHistory)
-                messages.add(userTurnMessage(userText, attachedImageBase64))
+                val systemMessage = systemPromptMessage(selectedRole, worldModel, agentSettings, AgentIntentRouter.route(userText), artifactIntent)
+                val compiledContext = AgentContextCompiler.compile(
+                    system = systemMessage,
+                    history = conversationHistory,
+                    user = userTurnMessage(userText, attachedImageBase64),
+                    maxCharacters = 140_000,
+                )
+                val messages = compiledContext.messages.toMutableList()
 
                 var providerIndex = 0
                 var iteration = 0
                 var finished = false
                 var turnPhase = TurnPhase.MAIN
                 var mainTurnSummary: String? = null
+                var totalToolCalls = 0
 
                 while (!finished && iteration < effectiveMaxIterations) {
                     iteration++
@@ -199,14 +211,14 @@ class AgentOrchestrator
                     // containing the whole finished reply.
                     val turnResult: TurnCallResult? =
                         if (provider.type == com.waheed.artificerx.domain.model.AiProviderType.LOCAL_GGUF) {
-                            val response = callProvider(provider, messages, effectiveTemperature.toDouble())
+                            val response = callProvider(provider, messages, userText, effectiveTemperature.toDouble())
                             val message = response?.choices?.firstOrNull()?.message
                             if (message?.contentText?.isNotBlank() == true) {
                                 emit(AgentEvent.AgentTextChunk(message.contentText))
                             }
                             response?.let { TurnCallResult(message, it.choices.firstOrNull()?.finishReason) }
                         } else {
-                            streamCloudProvider(provider, messages, effectiveTemperature.toDouble(), agentSettings.reasoningEffort) { event -> emit(event) }
+                            streamCloudProvider(provider, messages, userText, effectiveTemperature.toDouble(), agentSettings.reasoningEffort) { event -> emit(event) }
                         }
 
                     if (turnResult == null || turnResult.message == null) {
@@ -244,6 +256,11 @@ class AgentOrchestrator
                     var snapshotRequestedThisRound = false
 
                     for (toolCall in toolCalls) {
+                        totalToolCalls++
+                        if (totalToolCalls > executionBudget.maxToolCalls) {
+                            emit(AgentEvent.Error("Tool-call safety budget reached (${executionBudget.maxToolCalls}). Finish the turn with the work completed so far.", isFatal = true))
+                            return@flow
+                        }
                         emit(
                             AgentEvent.ToolCallStarted(
                                 callId = toolCall.id,
@@ -302,8 +319,10 @@ class AgentOrchestrator
                                 if (result.requiresSnapshot) snapshotRequestedThisRound = true
                             }
                             is ToolExecutionResult.Failure -> {
+                                val repair = AgentRepairPlanner.classify(result.errorMessage)
                                 emit(AgentEvent.ToolCallFailed(toolCall.id, result.errorMessage))
-                                messages.add(toolResultMessage(toolCall, "ERROR: ${result.errorMessage}"))
+                                messages.add(toolResultMessage(toolCall, "ERROR: ${result.errorMessage}
+REPAIR GUIDANCE: ${repair.guidance}"))
                             }
                             is ToolExecutionResult.TurnFinished -> {
                                 emit(AgentEvent.ToolCallSucceeded(toolCall.id, "Turn finished"))
@@ -395,23 +414,29 @@ class AgentOrchestrator
          *  number should degrade to "try it last", never to "never try it",
          *  since the provider's actual API response is the real source of
          *  truth on whether a call succeeds. */
-        private suspend fun collectUsableProviders(): List<AiProviderConfig> {
+        private suspend fun collectUsableProviders(needs: ModelRoutingPolicy.RequestNeeds): List<AiProviderConfig> {
             val enabled = providerConfigRepository.configs.first().filter { it.isEnabled }
-            val (withinQuota, exhausted) = enabled.partition { !it.isOverQuota }
-            return withinQuota.sortedByDescending { it.isPrimary } +
-                exhausted.sortedByDescending { it.isPrimary }
+            return ModelRoutingPolicy.rank(enabled, needs)
         }
 
-        private fun systemPromptMessage(
+        private suspend fun systemPromptMessage(
             role: com.waheed.artificerx.core.agent.multiagent.AgentRole,
             worldModel: com.waheed.artificerx.core.agent.multiagent.WorldModel?,
             agentSettings: com.waheed.artificerx.data.local.datastore.AgentSettings? = null,
+            intentRoute: AgentIntentRouter.Route? = null,
+            artifactIntent: ArtifactIntentDetector.Intent? = null,
         ): ChatMessageDto {
             val basePrompt =
                 """
                 You are the Reasoning Brain of ARTIFICER-X, an agentic art studio.
+
+Interaction policy: Prefer doing over describing; inspect state before multi-step edits; make reversible changes; verify every side effect; never claim an artifact exists until a concrete tool succeeds.
                 You do not generate images directly. You create artwork and 3D
                 sculptures exclusively by calling the provided tools.
+
+                Artifact/workspace tools are real side-effecting operations: generate_image creates a PNG artifact through the configured image-capable provider; create_file writes a real local artifact; create_zip packages real files; read_workspace_file/list_workspace_directory/write_workspace_file/replace_workspace_text operate on the managed works workspace; remember and recall persist local memory; run_terminal_command and run_terminal_batch execute in the app-private sandbox. Never claim an artifact, image, ZIP, terminal result, or memory entry exists unless its tool returned success.
+
+                Prefer concrete named tools over dynamic capability aliases. Dynamic tools are routed only through supported local action adapters; unsupported dynamic actions must be reported as unsupported rather than invented.
 
                 2D canvas tools: create_layer, delete_layer, set_active_layer,
                 draw_path, draw_shape, apply_gradient, fill_region,
@@ -436,6 +461,8 @@ class AgentOrchestrator
 
                 3D sculpting tools: create_primitive, sculpt_stroke, delete_mesh,
                 set_mesh_color, transform_mesh, inspect_scene.
+
+                For coding work, use read_workspace_file and list_workspace_directory before editing. Use replace_workspace_text for surgical patches or write_workspace_file for complete files, then inspect the resulting state and run available checks. Keep all edits inside the managed ARTIFICER-X/works workspace unless a concrete tool explicitly targets another safe location.
 
                 Work in small deliberate steps. After any operation whose result
                 you are not certain about, call inspect_canvas (2D) or
@@ -500,10 +527,19 @@ class AgentOrchestrator
 
             val roleSection = "\n\nCurrent specialist focus (${role.displayName}):\n${role.focusInstruction}"
             val worldModelSection = worldModel?.toPromptBlock()?.let { "\n\n$it" } ?: ""
+            val memorySection = runCatching { memoryRepository.list("global").take(12) }.getOrDefault(emptyList()).let { memories ->
+                if (memories.isEmpty()) "" else "\n\nPersistent local memory:\n" + memories.joinToString("\n") { "- ${it.key}: ${it.value.take(400)}" }
+            }
+            val routeSection = intentRoute?.let { route ->
+                "\n\nIntent route: ${route.kind.name} (${route.confidence}% confidence). Preferred tools: ${route.preferredTools.joinToString(", ")}. Guidance: ${route.notes}"
+            } ?: ""
+            val artifactIntentSection = artifactIntent?.takeIf { it.explicit }?.let { intent ->
+                "\n\nExplicit output intent: ${intent.requested.joinToString(", ")}. Materialize the requested output instead of returning a text-only description."
+            } ?: ""
 
             return ChatMessageDto(
                 role = "system",
-                contentText = basePrompt + deepStudioSection + roleSection + worldModelSection,
+                contentText = basePrompt + deepStudioSection + roleSection + worldModelSection + memorySection + routeSection + artifactIntentSection,
             )
         }
 
@@ -525,7 +561,7 @@ class AgentOrchestrator
                 archivistMessages.add(systemPromptMessage(com.waheed.artificerx.core.agent.multiagent.AgentRole.ARCHIVIST, null))
                 archivistMessages.addAll(conversationSoFar.takeLast(ARCHIVIST_CONTEXT_MESSAGE_COUNT))
 
-                val response = callProvider(provider, archivistMessages, temperature = 0.2)
+                val response = callProvider(provider, archivistMessages, "archivist continuity review", temperature = 0.2)
                 val summaryText =
                     response
                         ?.choices
@@ -720,6 +756,7 @@ class AgentOrchestrator
         private suspend fun streamCloudProvider(
             provider: AiProviderConfig,
             messages: List<ChatMessageDto>,
+            userText: String,
             temperature: Double,
             reasoningEffort: String?,
             emit: suspend (AgentEvent) -> Unit,
@@ -731,7 +768,7 @@ class AgentOrchestrator
                 ChatCompletionRequest(
                     model = modelId,
                     messages = messages,
-                    tools = ToolRegistry.ALL_TOOLS,
+                    tools = ToolSelectionPolicy.select(userText),
                     temperature = temperature,
                     maxTokens = if (reasoningEffort != null) 4096 else 2048,
                     stream = true,
@@ -842,6 +879,7 @@ class AgentOrchestrator
         private suspend fun callProvider(
             provider: AiProviderConfig,
             messages: List<ChatMessageDto>,
+            userText: String,
             temperature: Double = 0.4,
         ): ChatCompletionResponse? {
             // Section: Local Model provider — bypass the OpenAI-compatible
@@ -865,7 +903,7 @@ class AgentOrchestrator
                 ChatCompletionRequest(
                     model = modelId,
                     messages = messages,
-                    tools = ToolRegistry.ALL_TOOLS,
+                    tools = ToolSelectionPolicy.select(userText),
                     temperature = temperature,
                     maxTokens = 2048,
                 )
