@@ -13,10 +13,10 @@ import androidx.compose.ui.unit.dp
 fun ExtremeControlCenterScreen(
     onBack:()->Unit, onAutomation:()->Unit, onSearch:()->Unit, onTimeline:()->Unit, onPermissions:()->Unit, onFiles:()->Unit, onObservatory:()->Unit,
 ) {
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement=Arrangement.spacedBy(12.dp)) {
-        Row(Modifier.fillMaxWidth()){ IconButton(onClick=onBack){Icon(Icons.Filled.ArrowBack,null)}; Text("Artificer X Control Center", style=MaterialTheme.typography.headlineSmall, modifier=Modifier.padding(top=10.dp)) }
-        LazyColumn(verticalArrangement=Arrangement.spacedBy(10.dp)) {
-            item { Text("One control surface for intelligence, storage, automation and safety.", style=MaterialTheme.typography.bodyMedium) }
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth()){ IconButton(onClick = onBack){Icon(Icons.Filled.ArrowBack, null)}; Text("Artificer X Control Center", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 10.dp)) }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item { Text("One control surface for intelligence, storage, automation and safety.", style = MaterialTheme.typography.bodyMedium) }
             item { ControlCard("Agent execution timeline", "Inspect real execution phases and verification", Icons.Filled.AutoAwesome, onTimeline) }
             item { ControlCard("Automation", "Run and configure local WorkManager automations", Icons.Filled.Schedule, onAutomation) }
             item { ControlCard("Workspace search", "Search managed works, artifacts, models and plugins", Icons.Filled.Search, onSearch) }
@@ -26,4 +26,4 @@ fun ExtremeControlCenterScreen(
         }
     }
 }
-@Composable private fun ControlCard(title:String, subtitle:String, icon:androidx.compose.ui.graphics.vector.ImageVector, onClick:()->Unit){ Card(onClick=onClick, modifier=Modifier.fillMaxWidth()){ Row(Modifier.padding(16.dp)){ Icon(icon,null); Spacer(Modifier.width(14.dp)); Column{ Text(title, style=MaterialTheme.typography.titleMedium); Text(subtitle, style=MaterialTheme.typography.bodySmall) } } } }
+@Composable private fun ControlCard(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick:()->Unit){ Card(onClick = onClick, modifier = Modifier.fillMaxWidth()){ Row(Modifier.padding(16.dp)){ Icon(icon, null); Spacer(Modifier.width(14.dp)); Column{ Text(title, style = MaterialTheme.typography.titleMedium); Text(subtitle, style = MaterialTheme.typography.bodySmall) } } } }

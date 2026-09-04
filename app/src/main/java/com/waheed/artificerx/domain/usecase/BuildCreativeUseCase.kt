@@ -6,6 +6,6 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class BuildCreativeUseCase @Inject constructor(private val composer:SceneCompositionEngine) {
-    suspend fun build(request:String,vm:StudioViewModel):String = composer.compose(request,vm)
+class BuildCreativeUseCase @Inject constructor(private val composer: SceneCompositionEngine) {
+    suspend fun build(request: String, vm: StudioViewModel): String = composer.compose(request, vm)
 }

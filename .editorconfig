@@ -24,6 +24,26 @@ ktlint_function_naming_ignore_when_annotated_with = Composable
 # this codebase — not a naming mistake.
 ktlint_standard_backing-property-naming = disabled
 
+# ── Line-wrapping style rules: disabled ──
+# This codebase deliberately favors dense, compact single-line
+# declarations (tool definitions, DTOs, capability stubs) over the
+# "one parameter per line" style ktlint's standard ruleset defaults to.
+# These rules don't catch bugs — they enforce a wrapping *style* that
+# conflicts with the project's own established convention, and were
+# firing thousands of times across generated capability/expansion
+# files that are intentionally terse. Real correctness rules (spacing,
+# indentation, trailing commas, blank-line hygiene) stay enabled below.
+ktlint_standard_argument-list-wrapping = disabled
+ktlint_standard_parameter-list-wrapping = disabled
+ktlint_standard_function-signature = disabled
+ktlint_standard_multiline-expression-wrapping = disabled
+ktlint_standard_string-template-indent = disabled
+ktlint_standard_wrapping = disabled
+ktlint_standard_condition-wrapping = disabled
+ktlint_standard_when-entry-bracing = disabled
+ktlint_standard_annotation = disabled
+ktlint_standard_blank-line-before-declaration = disabled
+
 [*.md]
 max_line_length = off
 trim_trailing_whitespace = false

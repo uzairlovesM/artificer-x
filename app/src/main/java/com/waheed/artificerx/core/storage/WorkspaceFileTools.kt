@@ -39,7 +39,7 @@ class WorkspaceFileTools @Inject constructor(private val fs: WorkspaceFileSystem
 
     private fun safe(relative: String): File? {
         val root = fs.roots.works.canonicalFile
-        val pieces = relative.replace('\\','/').split('/').filter { it.isNotBlank() && it != "." && it != ".." }
+        val pieces = relative.replace('\\', '/').split('/').filter { it.isNotBlank() && it != "." && it != ".." }
         if (pieces.isEmpty()) return root
         val target = pieces.fold(root) { acc, piece -> acc.resolve(piece) }.canonicalFile
         return if (target.path == root.path || target.path.startsWith(root.path + File.separator)) target else null

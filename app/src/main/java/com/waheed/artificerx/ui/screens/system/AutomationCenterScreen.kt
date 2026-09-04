@@ -45,7 +45,7 @@ fun AutomationCenterScreen(onBack: () -> Unit, vm: AutomationCenterViewModel = h
     val rules by vm.rules.collectAsState()
     val logs by vm.logs.collectAsState()
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(Modifier.fillMaxWidth()) { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, null) }; Text("Automation Center", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top=10.dp)) }
+        Row(Modifier.fillMaxWidth()) { IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, null) }; Text("Automation Center", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 10.dp)) }
         Text("Real local automations run through WorkManager and the workspace services.", style = MaterialTheme.typography.bodyMedium)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
             items(rules, key = { it.id }) { rule ->

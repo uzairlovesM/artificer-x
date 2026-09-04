@@ -55,30 +55,30 @@ fun PermissionsStorageScreen(onBack: () -> Unit) {
     val runtime = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { stamp = System.currentTimeMillis() }
     val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? -> uri?.let { gateway.persistTreePermission(it) } }
     val rows = PermissionManager.Capability.entries
-    Scaffold(topBar={WorkspaceTopBar("Permissions & Storage","Runtime permissions, SAF access and local workspace paths",onBack)}) { pad ->
-        LazyColumn(Modifier.fillMaxSize().padding(pad).padding(14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-            item { Text("Runtime access", style=androidx.compose.material3.MaterialTheme.typography.titleLarge) }
+    Scaffold(topBar = {WorkspaceTopBar("Permissions & Storage", "Runtime permissions, SAF access and local workspace paths", onBack)}) { pad ->
+        LazyColumn(Modifier.fillMaxSize().padding(pad).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item { Text("Runtime access", style = androidx.compose.material3.MaterialTheme.typography.titleLarge) }
             items(rows) { capability ->
                 val granted = PermissionManager.isGranted(context, capability)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-                    Column(Modifier.weight(1f)){Text(capability.name.replace('_',' '));Text(if(granted)"Granted" else "Not granted", style=androidx.compose.material3.MaterialTheme.typography.bodySmall)}
-                    if(!granted && capability.permissions.isNotEmpty()) Button(onClick={runtime.launch(capability.permissions.toTypedArray())}){Text("Grant")}
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(Modifier.weight(1f)){Text(capability.name.replace('_', ' '));Text(if(granted)"Granted" else "Not granted", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)}
+                    if(!granted && capability.permissions.isNotEmpty()) Button(onClick = {runtime.launch(capability.permissions.toTypedArray())}){Text("Grant")}
                 }
             }
             item { HorizontalDivider() }
-            item { Text("Workspace filesystem", style=androidx.compose.material3.MaterialTheme.typography.titleLarge) }
+            item { Text("Workspace filesystem", style = androidx.compose.material3.MaterialTheme.typography.titleLarge) }
             item { Text("Root: ${fs.roots.root.absolutePath}") }
             items(listOf(
                 "works" to fs.roots.works, "cache" to fs.roots.cache, "system" to fs.roots.system, "plugins" to fs.roots.plugins,
                 "models" to fs.roots.models, "exports" to fs.roots.exports, "imports" to fs.roots.imports, "logs" to fs.roots.logs,
                 "temp" to fs.roots.temp, "thumbnails" to fs.roots.thumbnails, "backups" to fs.roots.backups, "autosave" to fs.roots.autosave,
                 "projects" to fs.roots.projects, "recipes" to fs.roots.recipes
-            )) { (name,file) -> Text("$name  •  ${file.length()} bytes  •  ${file.listFiles()?.size ?: 0} children") }
-            item { Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Button(onClick={fs.ensureReady();stamp=System.currentTimeMillis()}){Text("Initialize")};OutlinedButton(onClick={fs.clearCache();stamp=System.currentTimeMillis()}){Text("Clear cache")}} }
-            item { Text("External storage", style=androidx.compose.material3.MaterialTheme.typography.titleLarge) }
+            )) { (name, file) -> Text("$name  •  ${file.length()} bytes  •  ${file.listFiles()?.size ?: 0} children") }
+            item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)){Button(onClick = {fs.ensureReady();stamp = System.currentTimeMillis()}){Text("Initialize")};OutlinedButton(onClick = {fs.clearCache();stamp = System.currentTimeMillis()}){Text("Clear cache")}} }
+            item { Text("External storage", style = androidx.compose.material3.MaterialTheme.typography.titleLarge) }
             item { Text("Use Android's Storage Access Framework for user-selected folders. MediaStore is used for app-published images/documents.") }
-            item { Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){Button(onClick={treePicker.launch(null)}){Text("Grant folder access")};OutlinedButton(onClick={context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))}){Text("App settings")}} }
-            if (Build.VERSION.SDK_INT >= 30) item { OutlinedButton(onClick={runCatching { context.startActivity(PermissionManager.manageAllFilesIntent(context)) }} ){Text("Open all-files settings") } }
+            item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)){Button(onClick = {treePicker.launch(null)}){Text("Grant folder access")};OutlinedButton(onClick = {context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))}){Text("App settings")}} }
+            if (Build.VERSION.SDK_INT >= 30) item { OutlinedButton(onClick = {runCatching { context.startActivity(PermissionManager.manageAllFilesIntent(context)) }} ){Text("Open all-files settings") } }
         }
     }
 }

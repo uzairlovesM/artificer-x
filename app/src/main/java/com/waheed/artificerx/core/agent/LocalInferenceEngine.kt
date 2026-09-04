@@ -55,7 +55,7 @@ sealed class LocalGenerationResult {
  * LocalModelViewModel for the settings-screen "test this model"
  * button) shares this same engine and its current-load state.
  *
- * Wraps io.github.ljcamargo:llamacpp-kotlin's LlamaHelper, translating
+ * Wraps io.github.ljcamargo: llamacpp-kotlin's LlamaHelper, translating
  * its LLMEvent stream into this app's own AgentEvent /
  * LocalGenerationResult vocabulary so the rest of the codebase never
  * depends on the third-party library's types directly outside this

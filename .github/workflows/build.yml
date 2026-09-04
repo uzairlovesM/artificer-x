@@ -541,15 +541,6 @@ jobs:
         continue-on-error: true
         run: set -o pipefail; ./gradlew assembleDebug --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} ${{ env.GRADLE_CONFIG_CACHE_FLAGS }} 2>&1 | tee ci-reports/assemble-debug.log
 
-      - name: Upload Debug APK
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: artificerx-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: ignore
-          retention-days: 30
-
       # ── 21. APK Size Analysis ──
       - name: 21. APK Size Analysis
         id: step_apk_size_analysis
@@ -576,19 +567,15 @@ jobs:
           fi
 
       # ── 22. ProGuard/R8 Validation + Release Build ──
+      # Note: the release .apk produced here is an internal input for
+      # signing validation and build-reproducibility hashing below —
+      # it is intentionally never uploaded on its own. The single
+      # installable deliverable this pipeline ships is the .apks
+      # archive from step 26b.
       - name: 22. ProGuard/R8 Validation & Release Build
         id: step_release_build
         continue-on-error: true
         run: set -o pipefail; ./gradlew assembleRelease --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} ${{ env.GRADLE_CONFIG_CACHE_FLAGS }} 2>&1 | tee ci-reports/assemble-release.log
-
-      - name: Upload Release APK
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: artificerx-release-apk
-          path: app/build/outputs/apk/release/*.apk
-          if-no-files-found: ignore
-          retention-days: 90
 
       - name: Upload R8 mapping file
         if: always()
@@ -664,26 +651,29 @@ jobs:
           if-no-files-found: ignore
 
       # ── 26. Bundle (AAB) Build ──
+      # Note: the .aab produced here is an internal input for the
+      # bundletool .apks conversion in 26b below and is intentionally
+      # never uploaded on its own — see 26b's comment for why.
       - name: 26. Bundle (AAB) Build
         id: step_bundle_build
         continue-on-error: true
         run: set -o pipefail; ./gradlew bundleRelease --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} ${{ env.GRADLE_CONFIG_CACHE_FLAGS }} 2>&1 | tee ci-reports/bundle-release.log
 
-      - name: Upload AAB
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: artificerx-release-aab
-          path: app/build/outputs/bundle/release/*.aab
-          if-no-files-found: ignore
-          retention-days: 90
-
-      # ── 26b. Bundletool .apks Generation ──
-      # New: converts the .aab into an installable .apks archive via
-      # Google's own bundletool — this is what actually confirms the
-      # AAB is device-installable (per-ABI/density/language splits
-      # resolve correctly) rather than just "the .aab file exists".
-      - name: 26b. Generate .apks via bundletool
+      # ── 26b. Bundletool .apks Generation (single installable deliverable) ──
+      # This is the ONLY installable artifact this pipeline ships.
+      # Deliberately built in bundletool's default (split) mode, not
+      # --mode=universal: default mode packs the .apks the same way
+      # Google Play itself would generate device-specific delivery —
+      # a base.apk (the app's core code/resources/manifest) plus
+      # per-ABI/density/language split APKs alongside it, all inside
+      # one .apks container. Opening the .apks in a file/APK manager
+      # shows base.apk as the top-level entry, exactly like a real
+      # Play-signed release. Universal mode would instead pack a
+      # single fat universal.apk with every ABI merged in — bigger,
+      # and without the base.apk split structure. No loose .apk from
+      # steps 20/22 and no loose .aab from step 26 are uploaded
+      # anywhere in this pipeline; this is the one deliverable.
+      - name: 26b. Generate .apks via bundletool (default/split mode)
         id: step_bundletool_apks
         continue-on-error: true
         run: |
@@ -695,17 +685,18 @@ jobs:
           curl -sSL -o bundletool.jar https://github.com/google/bundletool/releases/download/1.17.2/bundletool-all-1.17.2.jar
           java -jar bundletool.jar build-apks \
             --bundle="$AAB_PATH" \
-            --output=app/build/outputs/bundle/release/app-release.apks \
-            --mode=universal
-          echo "Universal .apks generated:" >> $GITHUB_STEP_SUMMARY
-          du -h app/build/outputs/bundle/release/app-release.apks >> $GITHUB_STEP_SUMMARY
+            --output=app/build/outputs/bundle/release/artificerx.apks
+          echo "Installable .apks generated (default/split mode — contains base.apk + splits):" >> $GITHUB_STEP_SUMMARY
+          du -h app/build/outputs/bundle/release/artificerx.apks >> $GITHUB_STEP_SUMMARY
+          echo "## .apks contents" >> $GITHUB_STEP_SUMMARY
+          unzip -l app/build/outputs/bundle/release/artificerx.apks >> $GITHUB_STEP_SUMMARY
 
-      - name: Upload .apks archive
+      - name: Upload .apks archive (only installable artifact)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: artificerx-release-apks
-          path: app/build/outputs/bundle/release/app-release.apks
+          name: artificerx-apks
+          path: app/build/outputs/bundle/release/artificerx.apks
           if-no-files-found: ignore
           retention-days: 90
 
@@ -723,30 +714,9 @@ jobs:
           path: build/dependencyUpdates/
           if-no-files-found: ignore
 
-      # ── 27b. OWASP Dependency-Check (CVE scan) ──
-      # New: previously configured in build.gradle.kts (dependencyCheck
-      # {}) but never actually invoked by any CI step — the CVE report
-      # was silently never generated. Runs it explicitly here so a
-      # critical-severity CVE in the resolved release classpath is
-      # caught, not just theoretically configured.
-      - name: 27b. OWASP Dependency-Check (CVE Scan)
-        id: step_owasp_scan
-        continue-on-error: true
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: set -o pipefail; ./gradlew dependencyCheckAnalyze --stacktrace ${{ env.GRADLE_CONTINUE_FLAG }} 2>&1 | tee ci-reports/owasp.log
-
-      - name: Upload OWASP report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: owasp-dependency-check-report
-          path: app/build/reports/dependency-check-report.*
-          if-no-files-found: ignore
-
       # ── 27c. License Report Generation ──
       # New: also previously configured but never invoked — same gap
-      # as OWASP above.
+      # as before.
       - name: 27c. Third-Party License Report
         id: step_license_report
         continue-on-error: true
@@ -852,7 +822,6 @@ jobs:
             echo "| AAB Bundle | ${{ steps.step_bundle_build.outcome }} |"
             echo "| Bundletool .apks | ${{ steps.step_bundletool_apks.outcome }} |"
             echo "| Dependency Freshness | ${{ steps.step_dependency_freshness.outcome }} |"
-            echo "| OWASP CVE Scan | ${{ steps.step_owasp_scan.outcome }} |"
             echo "| License Report | ${{ steps.step_license_report.outcome }} |"
             echo "| Dexcount | ${{ steps.step_dexcount.outcome }} |"
             echo "| Dependency Analysis | ${{ steps.step_dependency_analysis.outcome }} |"
@@ -883,7 +852,6 @@ jobs:
             "ci-reports/r8-seeds.txt|app/build/outputs/mapping/release/seeds.txt"
             "ci-reports/r8-usage.txt|app/build/outputs/mapping/release/usage.txt"
             "ci-reports/dependency-freshness-summary|build/dependencyUpdates/report.txt"
-            "ci-reports/owasp-summary|app/build/reports/dependency-check-report.html"
           )
 
           for entry in "${REPORT_SOURCES[@]}"; do
@@ -981,7 +949,6 @@ jobs:
           echo "| 26 | Bundle (AAB) Build | ${{ steps.step_bundle_build.outcome }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 26b | Bundletool .apks Generation | ${{ steps.step_bundletool_apks.outcome }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 27 | Dependency Freshness Report | ${{ steps.step_dependency_freshness.outcome }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| 27b | OWASP Dependency-Check (CVE Scan) | ${{ steps.step_owasp_scan.outcome }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 27c | Third-Party License Report | ${{ steps.step_license_report.outcome }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 27d | Dexcount Method Count Report | ${{ steps.step_dexcount.outcome }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 27e | Dependency Analysis (projectHealth) | ${{ steps.step_dependency_analysis.outcome }} |" >> $GITHUB_STEP_SUMMARY
@@ -1022,7 +989,6 @@ jobs:
             "${{ steps.step_bundle_build.outcome }}" \
             "${{ steps.step_bundletool_apks.outcome }}" \
             "${{ steps.step_dependency_freshness.outcome }}" \
-            "${{ steps.step_owasp_scan.outcome }}" \
             "${{ steps.step_license_report.outcome }}" \
             "${{ steps.step_dexcount.outcome }}" \
             "${{ steps.step_dependency_analysis.outcome }}"; do
@@ -1206,7 +1172,7 @@ jobs:
             const failedCount = '${{ needs.full-pipeline.outputs.failed_count }}' || '0';
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const status = failedCount === '0' ? '✅ All checks passed' : `❌ ${failedCount} step(s) failed`;
-            const body = `## ARTIFICER-X CI/CD Result\n\n${status}\n\nFull step-by-step breakdown, downloadable reports (lint, detekt, coverage, OWASP, APK/AAB artifacts) and raw logs: [view run](${runUrl})`;
+            const body = `## ARTIFICER-X CI/CD Result\n\n${status}\n\nFull step-by-step breakdown, downloadable reports (lint, detekt, coverage, APK/AAB artifacts) and raw logs: [view run](${runUrl})`;
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,

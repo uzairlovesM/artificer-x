@@ -6,9 +6,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class AiCapabilityPlanner @Inject constructor(private val toolchain:AndroidToolchainManager) {
-    fun environmentBrief():String {
-        val s=toolchain.inspect()
+class AiCapabilityPlanner @Inject constructor(private val toolchain: AndroidToolchainManager) {
+    fun environmentBrief(): String {
+        val s = toolchain.inspect()
         return buildString {
             append("Android ${s.androidRelease}; ")
             append("SDK=${s.sdkRoot ?: "unresolved"}; ")

@@ -99,7 +99,7 @@ class CanvasCompositor
 
         /** True transparency erase — Paint.Style.STROKE with an XOR/CLEAR
          *  Xfermode along the path, so it actually punches a hole down to
-         *  alpha=0 regardless of what color is underneath. v0.4.30 fix:
+         *  alpha = 0 regardless of what color is underneath. v0.4.30 fix:
          *  the eraser previously worked by drawing opaque white over the
          *  stroke (see old StudioViewModel.drawManualStroke), which looked
          *  right only by accident on a plain white background and quietly
@@ -482,7 +482,7 @@ class CanvasCompositor
             }
         }
 
-        /** Regular n-sided polygon inscribed in the (x,y,w,h) bounding box,
+        /** Regular n-sided polygon inscribed in the (x, y, w, h) bounding box,
          *  point-up (first vertex at the top) so a 3-sided polygon reads as
          *  an upward-pointing triangle by default. */
         private fun regularPolygonPath(
@@ -1156,8 +1156,8 @@ class CanvasCompositor
          *  directly into [base]'s pixel array in place.
          *
          *  Formulas (per channel, base/blend in 0..1 range):
-         *   - Color Dodge: base / (1 - blend), clamped to 1 when blend=1
-         *   - Color Burn:  1 - (1 - base) / blend, clamped to 0 when blend=0
+         *   - Color Dodge: base / (1 - blend), clamped to 1 when blend = 1
+         *   - Color Burn:  1 - (1 - base) / blend, clamped to 0 when blend = 0
          *   - Subtract:    base - blend, clamped to 0
          *  These match the standard digital-compositing definitions used
          *  by Photoshop/GIMP/Krita, so a layer authored with this blend

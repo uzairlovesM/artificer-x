@@ -11,7 +11,6 @@ plugins {
     alias(libs.plugins.ktlint)
     alias(libs.plugins.kover)
     alias(libs.plugins.dependency.guard)
-    alias(libs.plugins.owasp.dependencycheck)
     alias(libs.plugins.license.report)
     alias(libs.plugins.dexcount)
     // Also applied at root (build.gradle.kts) — the dependency-analysis
@@ -63,6 +62,10 @@ kotlin {
             "-opt-in=kotlin.RequiresOptIn",
             "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
             "-opt-in=kotlinx.serialization.ExperimentalSerializationApi",
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
+            "-opt-in=androidx.compose.animation.ExperimentalAnimationApi",
+            "-opt-in=androidx.compose.ui.ExperimentalComposeUiApi",
         )
     }
 }
@@ -539,48 +542,6 @@ kover {
                 )
                 annotatedBy("androidx.compose.ui.tooling.preview.Preview")
             }
-        }
-    }
-}
-
-// ── OWASP Dependency-Check ──
-// Section: workflow/dependency additions. NVD-backed CVE scanner for
-// the fully-resolved dependency tree. failBuildOnCVSS is set high
-// (9.0, "critical" only) rather than failing on any finding — Android
-// projects hit a well-documented false-positive pattern where the
-// Kotlin standard library itself gets matched against unrelated CVEs
-// by CPE heuristics, and a strict cutoff here would make every build
-// red on day one. scanConfigurations restricts the scan to the
-// actual shipped runtime classpath (skips test/androidTest/debug-only
-// configurations), which is also the standard fix for the
-// stdlib-false-positive problem — those configs pull in tooling
-// (Kotlin compiler artifacts, JVM test runners) that only exist at
-// build time and never ship in the APK, so a CVE against them is
-// meaningless for what actually reaches a device.
-dependencyCheck {
-    failBuildOnCVSS = 9.0f
-    formats = listOf("HTML", "JSON", "SARIF")
-    scanConfigurations = listOf("releaseRuntimeClasspath")
-    // pdfbox-android's own documented CVE caveat (see libs.versions.toml)
-    // is the one known, already-reviewed finding this project ships
-    // with anyway (personal, non-distributed build) — everything else
-    // should genuinely fail attention, not get lost in that one
-    // pre-accepted entry's noise.
-    suppressionFile = "$rootDir/config/owasp/suppressions.xml"
-    // NVD now requires a (free, self-service) API key for the CVE feed
-    // updater — passing an *empty* apiKey is worse than not setting the
-    // nvd{} block at all: the plugin sees a non-null key, tries to mask
-    // it for logging, and fails immediately with "Invalid API Key,
-    // length of 0 too short to provided a masked partial key" before
-    // ever attempting a request. So only configure nvd{} when
-    // NVD_API_KEY is actually present (wired from the NVD_API_KEY repo
-    // secret in build.yml's OWASP step); otherwise leave the block
-    // unset and let the plugin fall back to its own unauthenticated,
-    // rate-limited default.
-    System.getenv("NVD_API_KEY")?.takeIf { it.isNotBlank() }?.let { key ->
-        nvd {
-            apiKey = key
-            delay = 4000
         }
     }
 }

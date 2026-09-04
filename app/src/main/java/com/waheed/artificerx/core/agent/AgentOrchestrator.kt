@@ -757,10 +757,10 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
             ) : StreamEvent()
         }
 
-        /** The actual fix: opens the HTTP request with stream=true, reads
+        /** The actual fix: opens the HTTP request with stream = true, reads
          *  the response body's SSE lines one at a time off the socket as
          *  they arrive (not after the whole body is buffered — that's
-         *  what `stream=false` + `response.body.string()` in the old
+         *  what `stream = false` + `response.body.string()` in the old
          *  [callProvider] did, which is exactly why the UI could never
          *  show real progressive text), and turns each `data: {...}` line
          *  into a [StreamEvent] the instant it's parsed. Text deltas are

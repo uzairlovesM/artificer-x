@@ -31,12 +31,12 @@ fun LayerLabScreen(vm: StudioViewModel, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     Scaffold(topBar = { WorkspaceTopBar("Layer Lab", "Locks, visibility, opacity, clipping and non-destructive controls", onBack) }) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).padding(12.dp)) {
-            Row(Modifier.fillMaxWidth()) { Text("${state.layers.size} layers", Modifier.weight(1f)); IconButton(onClick={vm.addLayer()}){Icon(Icons.Filled.Add,"Add layer")} }
-            LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)) { items(state.layers.sortedByDescending { it.orderIndex }) { layer ->
+            Row(Modifier.fillMaxWidth()) { Text("${state.layers.size} layers", Modifier.weight(1f)); IconButton(onClick = {vm.addLayer()}){Icon(Icons.Filled.Add, "Add layer")} }
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) { items(state.layers.sortedByDescending { it.orderIndex }) { layer ->
                 Column(Modifier.fillMaxWidth().padding(10.dp)) {
                     Row { Text(layer.name, Modifier.weight(1f)); Text(if (layer.id == state.activeLayerId) "ACTIVE" else "") }
-                    Row { IconButton(onClick={vm.setActiveLayer(layer.id)}) { Icon(Icons.Filled.Visibility,"Select layer") }; IconButton(onClick={vm.toggleLayerVisibility(layer.id)}){Icon(Icons.Filled.Visibility,"Visibility")}; IconButton(onClick={vm.toggleLayerLock(layer.id)}){Icon(Icons.Filled.Lock,"Lock")}; IconButton(onClick={ if (state.layers.size > 1) vm.deleteLayer(layer.id) }){Icon(Icons.Filled.Delete,"Delete")} }
-                    Slider(layer.opacity,{vm.setLayerOpacity(layer.id,it)}, valueRange=0f..1f)
+                    Row { IconButton(onClick = {vm.setActiveLayer(layer.id)}) { Icon(Icons.Filled.Visibility, "Select layer") }; IconButton(onClick = {vm.toggleLayerVisibility(layer.id)}){Icon(Icons.Filled.Visibility, "Visibility")}; IconButton(onClick = {vm.toggleLayerLock(layer.id)}){Icon(Icons.Filled.Lock, "Lock")}; IconButton(onClick = { if (state.layers.size > 1) vm.deleteLayer(layer.id) }){Icon(Icons.Filled.Delete, "Delete")} }
+                    Slider(layer.opacity, {vm.setLayerOpacity(layer.id, it)}, valueRange = 0f..1f)
                 }
             } }
         }

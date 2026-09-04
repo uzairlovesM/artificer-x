@@ -239,15 +239,15 @@ fun ProArtStudioScreen(
 }
 
 @Composable private fun ToolAction(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, active: Boolean = false, onClick: () -> Unit) {
-    Surface(onClick = onClick, shape = RoundedCornerShape(13.dp), color = if (active) MaterialTheme.colorScheme.primary.copy(alpha=.16f) else MaterialTheme.colorScheme.surface) {
-        Row(Modifier.padding(horizontal=10.dp, vertical=7.dp), verticalAlignment=Alignment.CenterVertically) { Icon(icon, null, Modifier.size(15.dp)); Spacer(Modifier.width(5.dp)); Text(label, style=MaterialTheme.typography.labelSmall) }
+    Surface(onClick = onClick, shape = RoundedCornerShape(13.dp), color = if (active) MaterialTheme.colorScheme.primary.copy(alpha = .16f) else MaterialTheme.colorScheme.surface) {
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, Modifier.size(15.dp)); Spacer(Modifier.width(5.dp)); Text(label, style = MaterialTheme.typography.labelSmall) }
     }
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawGrid() {
     val step = 32.dp.toPx()
     var x = 0f
-    while (x <= size.width) { drawLine(Color.Black.copy(alpha=.06f), Offset(x,0f), Offset(x,size.height), 1f); x += step }
+    while (x <= size.width) { drawLine(Color.Black.copy(alpha = .06f), Offset(x, 0f), Offset(x, size.height), 1f); x += step }
     var y = 0f
-    while (y <= size.height) { drawLine(Color.Black.copy(alpha=.06f), Offset(0f,y), Offset(size.width,y), 1f); y += step }
+    while (y <= size.height) { drawLine(Color.Black.copy(alpha = .06f), Offset(0f, y), Offset(size.width, y), 1f); y += step }
 }

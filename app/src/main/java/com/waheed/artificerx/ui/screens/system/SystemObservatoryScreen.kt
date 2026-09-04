@@ -32,21 +32,21 @@ interface ObservatoryEntryPoint { fun fileSystem(): WorkspaceFileSystem }
 
 @Composable
 fun SystemObservatoryScreen(onBack: () -> Unit) {
-    val context=LocalContext.current
-    val activity=context as android.app.Activity
-    val fs=remember { EntryPointAccessors.fromActivity(activity, ObservatoryEntryPoint::class.java).fileSystem() }
-    val memory=remember { (context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).run { ActivityManager.MemoryInfo().also{getMemoryInfo(it)} } }
-    val dirs=remember { listOf("works" to fs.roots.works, "cache" to fs.roots.cache, "system" to fs.roots.system, "plugins" to fs.roots.plugins, "models" to fs.roots.models, "exports" to fs.roots.exports, "imports" to fs.roots.imports, "logs" to fs.roots.logs, "temp" to fs.roots.temp, "backups" to fs.roots.backups, "autosave" to fs.roots.autosave, "projects" to fs.roots.projects) }
-    LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
+    val context = LocalContext.current
+    val activity = context as android.app.Activity
+    val fs = remember { EntryPointAccessors.fromActivity(activity, ObservatoryEntryPoint::class.java).fileSystem() }
+    val memory = remember { (context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).run { ActivityManager.MemoryInfo().also{getMemoryInfo(it)} } }
+    val dirs = remember { listOf("works" to fs.roots.works, "cache" to fs.roots.cache, "system" to fs.roots.system, "plugins" to fs.roots.plugins, "models" to fs.roots.models, "exports" to fs.roots.exports, "imports" to fs.roots.imports, "logs" to fs.roots.logs, "temp" to fs.roots.temp, "backups" to fs.roots.backups, "autosave" to fs.roots.autosave, "projects" to fs.roots.projects) }
+    LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { WorkspaceTopBar("System Observatory", "Runtime, workspace and capability telemetry", onBack) }
         item { MetricCard("Tools", ToolRegistry.ALL_TOOLS.size.toString(), "real agent capabilities") }
         item { MetricCard("Native raster", runCatching { System.loadLibrary("artificerx_native"); "JNI loaded" }.getOrDefault("Unavailable"), "C++ analysis hot path") }
         item { MetricCard("Plugins", BuiltinPluginCatalog.plugins.size.toString(), "built-in plugin descriptors") }
         item { MetricCard("Available RAM", "${(memory.availMem/1048576)} MiB", "system reported") }
         item { MetricCard("Workspace", "${fs.usageBytes()/1024} KiB", fs.roots.root.absolutePath) }
-        item { Text("Managed paths", style=androidx.compose.material3.MaterialTheme.typography.titleMedium) }
-        items(dirs) { (name,file) -> Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(12.dp), horizontalArrangement=Arrangement.SpaceBetween) { Column(Modifier.weight(1f)){Text(name);Text(file.absolutePath, style=androidx.compose.material3.MaterialTheme.typography.bodySmall)}; Text("${fs.listFiles(file, false).size} files") } } }
+        item { Text("Managed paths", style = androidx.compose.material3.MaterialTheme.typography.titleMedium) }
+        items(dirs) { (name, file) -> Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) { Column(Modifier.weight(1f)){Text(name);Text(file.absolutePath, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)}; Text("${fs.listFiles(file, false).size} files") } } }
     }
 }
 
-@Composable private fun MetricCard(label:String,value:String,detail:String){ Card(Modifier.fillMaxWidth()){ Column(Modifier.padding(14.dp)){Text(label,style=androidx.compose.material3.MaterialTheme.typography.labelLarge);Text(value,style=androidx.compose.material3.MaterialTheme.typography.headlineSmall);Text(detail,style=androidx.compose.material3.MaterialTheme.typography.bodySmall)} } }
+@Composable private fun MetricCard(label: String, value: String, detail: String){ Card(Modifier.fillMaxWidth()){ Column(Modifier.padding(14.dp)){Text(label, style = androidx.compose.material3.MaterialTheme.typography.labelLarge);Text(value, style = androidx.compose.material3.MaterialTheme.typography.headlineSmall);Text(detail, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)} } }

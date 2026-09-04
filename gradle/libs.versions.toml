@@ -241,31 +241,6 @@ gradleVersionsPlugin = "0.61.0"
 # reflectively-used dependency it can't statically see) rather than
 # an unconditional error.
 dependencyAnalysis = "3.17.0"
-# OWASP's NVD-backed CVE scanner for the fully-resolved dependency
-# tree — complements dependency-guard (which only detects that the
-# tree *changed*, not whether a version in it is vulnerable) and the
-# per-library CVE notes already written by hand in this TOML (e.g.
-# pdfbox-android's). Running this in CI means a newly-disclosed CVE
-# against an existing pinned version surfaces automatically on the
-# next scheduled run, not only when someone happens to re-read this
-# file's comments.
-#
-# NOTE (2026-09): running dependencyCheckAnalyze with NO NVD API key is
-# currently broken upstream at exactly this version — dependency-check
-# -core 13.0.0 defaults the key to an empty string internally instead
-# of null, which trips its own "Invalid API Key, length of 0 too short
-# to provide a masked partial key" guard before it ever reaches the
-# documented unauthenticated/rate-limited fallback path (see
-# https://github.com/dependency-check/DependencyCheck/issues/8715).
-# This project's own Gradle config is not at fault here — see
-# app/build.gradle.kts's dependencyCheck{} block, which already only
-# configures nvd{} when NVD_API_KEY is set — the fix is operational:
-# get a free key at https://nvd.nist.gov/developers/request-an-api-key
-# and add it as the NVD_API_KEY secret in this repo's GitHub Actions
-# settings (build.yml already wires secrets.NVD_API_KEY through). If a
-# key still isn't available, watch upstream issue #8715 for a fix and
-# bump this version once one ships.
-owaspDependencyCheck = "13.0.0"
 # Generates a full third-party license inventory — useful for this
 # project's own records given how many third-party libraries (jsoup,
 # readability4j, osmdroid, pdfbox-android, androidx.ink, llamacpp-
@@ -541,7 +516,6 @@ dependency-guard = { id = "com.dropbox.dependency-guard", version.ref = "depende
 versions = { id = "io.github.ben-manes.versions", version.ref = "gradleVersionsPlugin" }
 androidx-benchmark = { id = "androidx.benchmark", version.ref = "androidxBenchmark" }
 dependency-analysis = { id = "com.autonomousapps.dependency-analysis", version.ref = "dependencyAnalysis" }
-owasp-dependencycheck = { id = "org.owasp.dependencycheck", version.ref = "owaspDependencyCheck" }
 license-report = { id = "com.github.jk1.dependency-license-report", version.ref = "licenseReport" }
 dexcount = { id = "com.getkeepsafe.dexcount", version.ref = "dexcount" }
 # NOTE: no Apollo Gradle plugin entry here — that plugin requires a

@@ -131,7 +131,7 @@ class AgentChatViewModel
                 val messages = workspaceRepository.loadMessages(threadId)
                 val artifactCount = workspaceRepository.observeArtifacts(threadId).first().size
                 chatSessionDataStore.setActiveThreadId(threadId)
-                val profileId=chatProfileStore.getProfileForThread(threadId)
+                val profileId = chatProfileStore.getProfileForThread(threadId)
                 _uiState.update { it.copy(activeThreadId = threadId, messages = messages, artifactCount = artifactCount, inputText = "", activeProfileId = profileId) }
             }
         }
@@ -140,7 +140,7 @@ class AgentChatViewModel
             viewModelScope.launch {
                 val id = workspaceRepository.createThread()
                 chatSessionDataStore.setActiveThreadId(id)
-                val profileId=chatProfileStore.getProfileForThread(id)
+                val profileId = chatProfileStore.getProfileForThread(id)
                 _uiState.update { it.copy(activeThreadId = id, messages = emptyList(), inputText = "", artifactCount = 0, activeProfileId = profileId) }
             }
         }
@@ -168,21 +168,21 @@ class AgentChatViewModel
             linkedStudioViewModel = null
         }
 
-        fun setActiveProfile(id:String) { viewModelScope.launch {
-            val thread=_uiState.value.activeThreadId
-            if(thread.isNotBlank()) chatProfileStore.setProfileForThread(thread,id) else chatProfileStore.setActive(id)
-            _uiState.update { it.copy(activeProfileId=id) }
+        fun setActiveProfile(id: String) { viewModelScope.launch {
+            val thread = _uiState.value.activeThreadId
+            if(thread.isNotBlank()) chatProfileStore.setProfileForThread(thread, id) else chatProfileStore.setActive(id)
+            _uiState.update { it.copy(activeProfileId = id) }
         } }
 
-        fun saveProfile(profile:ChatProfile) { viewModelScope.launch {
-            val current=_uiState.value.chatProfiles.toMutableList()
-            val index=current.indexOfFirst { it.id==profile.id }
-            if(index>=0) current[index]=profile else current.add(profile)
+        fun saveProfile(profile: ChatProfile) { viewModelScope.launch {
+            val current = _uiState.value.chatProfiles.toMutableList()
+            val index = current.indexOfFirst { it.id==profile.id }
+            if(index>=0) current[index] = profile else current.add(profile)
             chatProfileStore.saveProfiles(current)
         } }
 
-        fun deleteProfile(id:String) { viewModelScope.launch {
-            val remaining=_uiState.value.chatProfiles.filterNot { it.id==id }
+        fun deleteProfile(id: String) { viewModelScope.launch {
+            val remaining = _uiState.value.chatProfiles.filterNot { it.id==id }
             if(remaining.isNotEmpty()) chatProfileStore.saveProfiles(remaining)
         } }
 

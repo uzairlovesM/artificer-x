@@ -25,13 +25,13 @@ import com.waheed.artificerx.ui.screens.canvas.StudioViewModel
 
 @Composable
 fun FilterLabScreen(vm: StudioViewModel, onBack: () -> Unit) {
-    val filters = listOf("grayscale","invert","saturation","brightness","contrast","blur","sharpen","glitch","chromatic aberration","wave","ripple","swirl","polar coordinates","posterize","halftone","screen tone")
+    val filters = listOf("grayscale", "invert", "saturation", "brightness", "contrast", "blur", "sharpen", "glitch", "chromatic aberration", "wave", "ripple", "swirl", "polar coordinates", "posterize", "halftone", "screen tone")
     var amount by remember { mutableFloatStateOf(1f) }
-    Scaffold(topBar={WorkspaceTopBar("Filter Lab","Live non-destructive effect presets",onBack)}){pad->
-        Column(Modifier.fillMaxSize().padding(pad).padding(14.dp), verticalArrangement=Arrangement.spacedBy(10.dp)){
-            Text("Intensity ${(amount*100).toInt()}%"); Slider(amount,{amount=it}, valueRange=.1f..2f)
-            LazyVerticalGrid(columns=GridCells.Fixed(2), modifier=Modifier.weight(1f), horizontalArrangement=Arrangement.spacedBy(8.dp), verticalArrangement=Arrangement.spacedBy(8.dp)){
-                items(filters){ filter -> Button(onClick={vm.applyActiveFilter(filter,amount)}, modifier=Modifier.fillMaxWidth()){Text(filter.replaceFirstChar{it.uppercase()})} }
+    Scaffold(topBar = {WorkspaceTopBar("Filter Lab", "Live non-destructive effect presets", onBack)}){pad->
+        Column(Modifier.fillMaxSize().padding(pad).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)){
+            Text("Intensity ${(amount*100).toInt()}%"); Slider(amount, {amount = it}, valueRange = .1f..2f)
+            LazyVerticalGrid(columns = GridCells.Fixed(2), modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)){
+                items(filters){ filter -> Button(onClick = {vm.applyActiveFilter(filter, amount)}, modifier = Modifier.fillMaxWidth()){Text(filter.replaceFirstChar{it.uppercase()})} }
             }
         }
     }

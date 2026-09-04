@@ -525,7 +525,7 @@ class StudioViewModel
             recomposite()
         }
 
-        /** There's no dedicated "background" concept in this app's layer
+        /** There's no dedicated  0  concept in this app's layer
          *  model (every layer is an equal transparent-capable bitmap) —
          *  matching that, this fills the bottom-most layer solid (creating
          *  one named "Background" first if the project is empty) rather

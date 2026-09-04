@@ -207,17 +207,17 @@ fun AgentChatScreen(
                             androidx.compose.material3.Surface(
                                 onClick = { viewModel.setActiveProfile(profile.id); showProfiles = false },
                                 shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-                                color = if(profile.id==state.activeProfileId) GoldPrimary.copy(alpha=.18f) else MaterialTheme.colorScheme.surfaceVariant,
+                                color = if(profile.id==state.activeProfileId) GoldPrimary.copy(alpha = .18f) else MaterialTheme.colorScheme.surfaceVariant,
                             ) {
-                                Row(modifier=Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically){
-                                    Column(Modifier.weight(1f)){ Text(profile.name, fontWeight=FontWeight.SemiBold); Text("temp ${profile.temperature} • ${profile.contextMode.name.lowercase()} context", style=MaterialTheme.typography.labelSmall) }
-                                    if(profile.id==state.activeProfileId) Icon(Icons.Filled.Check, contentDescription="Active")
+                                Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically){
+                                    Column(Modifier.weight(1f)){ Text(profile.name, fontWeight = FontWeight.SemiBold); Text("temp ${profile.temperature} • ${profile.contextMode.name.lowercase()} context", style = MaterialTheme.typography.labelSmall) }
+                                    if(profile.id==state.activeProfileId) Icon(Icons.Filled.Check, contentDescription = "Active")
                                 }
                             }
                         }
                     }
                 },
-                confirmButton = { TextButton(onClick={showProfiles=false}){Text("Close")} },
+                confirmButton = { TextButton(onClick = {showProfiles = false}){Text("Close")} },
             )
         }
 

@@ -43,21 +43,21 @@ fun CustomBrushDesignerScreen(store: CustomBrushStore, onBack: () -> Unit) {
     val types = BrushType.entries.map { it.name }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         WorkspaceTopBar("Brush Designer", "Create, persist and reuse custom brush presets", onBack)
-        OutlinedTextField(name, { name = it }, label={Text("Preset name")}, modifier=Modifier.fillMaxWidth())
-        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            types.take(8).forEach { type -> Button(onClick={baseType=type}) { Text(type.lowercase()) } }
+        OutlinedTextField(name, { name = it }, label = {Text("Preset name")}, modifier = Modifier.fillMaxWidth())
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            types.take(8).forEach { type -> Button(onClick = {baseType = type}) { Text(type.lowercase()) } }
         }
-        Text("Size ${size.toInt()} px"); Slider(size, { size=it }, valueRange=1f..300f)
-        Text("Opacity ${(opacity*100).toInt()}%"); Slider(opacity, { opacity=it }, valueRange=.05f..1f)
-        Text("Hardness ${(hardness*100).toInt()}%"); Slider(hardness, { hardness=it }, valueRange=0f..1f)
-        Button(onClick={
+        Text("Size ${size.toInt()} px"); Slider(size, { size = it }, valueRange = 1f..300f)
+        Text("Opacity ${(opacity*100).toInt()}%"); Slider(opacity, { opacity = it }, valueRange = .05f..1f)
+        Text("Hardness ${(hardness*100).toInt()}%"); Slider(hardness, { hardness = it }, valueRange = 0f..1f)
+        Button(onClick = {
             scope.launch {
-                val preset=CustomBrushPreset(UUID.randomUUID().toString(), name.ifBlank{"My Brush"}, baseType, size, opacity, hardness)
+                val preset = CustomBrushPreset(UUID.randomUUID().toString(), name.ifBlank{"My Brush"}, baseType, size, opacity, hardness)
                 store.save(preset); presets.clear(); presets.addAll(store.list())
             }
         }) { Text("Save preset") }
-        Text("Saved presets", style=androidx.compose.material3.MaterialTheme.typography.titleMedium)
-        LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp), modifier=Modifier.fillMaxWidth().weight(1f)) {
+        Text("Saved presets", style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth().weight(1f)) {
             items(presets) { p -> Text("${p.name}  •  ${p.baseType}  •  ${p.size.toInt()}px  •  ${(p.opacity*100).toInt()}%") }
         }
     }

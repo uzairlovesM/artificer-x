@@ -11,6 +11,6 @@ import javax.inject.Singleton
 @Singleton
 class LocalCapabilityRepository @Inject constructor(): CapabilityRepository {
     override fun observeCapabilities(): Flow<List<StudioCapability>> = flow {
-        emit(ToolRegistry.ALL_TOOLS.map { StudioCapability(it.function.name,it.function.description,true,"builtin_or_runtime") })
+        emit(ToolRegistry.ALL_TOOLS.map { StudioCapability(it.function.name, it.function.description, true, "builtin_or_runtime") })
     }
 }

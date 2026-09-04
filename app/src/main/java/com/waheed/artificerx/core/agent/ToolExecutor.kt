@@ -753,7 +753,7 @@ class ToolExecutor
                 }
 
                 is ParsedToolCall.InspectAndroidToolchain -> {
-                    val snapshot=androidToolchainManager.inspect()
+                    val snapshot = androidToolchainManager.inspect()
                     ToolExecutionResult.Success(
                         "Android=${snapshot.androidRelease}; SDK=${snapshot.sdkRoot ?: "unknown"}; " +
                             "platforms=${snapshot.platforms}; buildTools=${snapshot.buildTools}; ndks=${snapshot.ndks}; cmake=${snapshot.cmake}; " +

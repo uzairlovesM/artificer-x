@@ -1,7 +1,7 @@
 package com.waheed.artificerx.runtime.extension
 
 class ExtensionValidator {
-    fun validate(extension:RuntimeExtension):List<String> = buildList {
+    fun validate(extension: RuntimeExtension): List<String> = buildList {
         if (!extension.id.matches(Regex("[a-z0-9_.-]+"))) add("invalid id")
         if (extension.version.isBlank()) add("missing version")
         if (extension.entrypoint.isBlank()) add("missing entrypoint")

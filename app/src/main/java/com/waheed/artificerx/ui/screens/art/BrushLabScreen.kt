@@ -40,9 +40,9 @@ fun BrushLabScreen(vm: StudioViewModel, onBack: () -> Unit, onCustomDesigner: ()
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { families.take(6).forEach { FilterChip(selected = family == it, onClick = { family = it }, label = { Text(it) }) } }
             OutlinedTextField(query, { query = it }, label = { Text("Search brushes") }, modifier = Modifier.fillMaxSize().weight(.0f))
             androidx.compose.material3.OutlinedButton(onClick = onCustomDesigner, modifier = Modifier.fillMaxWidth()) { Text("Open Custom Brush Designer") }
-            Text("Size ${size.toInt()} px"); Slider(size, { size=it; vm.setBrushSize(it) }, valueRange=1f..300f)
-            Text("Opacity ${(opacity*100).toInt()}%"); Slider(opacity, { opacity=it; vm.setBrushDefaults(opacity=it) }, valueRange=0.05f..1f)
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) { items(presets.take(120)) { preset -> Button(onClick = { vm.setBrushType(preset.type); vm.setBrushSize((24f*preset.sizeMultiplier).coerceIn(1f,300f)); vm.setBrushDefaults(opacity=preset.opacity) }) { Text("${preset.name}  •  ${preset.family}  •  ${preset.type.name.lowercase()}") } } }
+            Text("Size ${size.toInt()} px"); Slider(size, { size = it; vm.setBrushSize(it) }, valueRange = 1f..300f)
+            Text("Opacity ${(opacity*100).toInt()}%"); Slider(opacity, { opacity = it; vm.setBrushDefaults(opacity = it) }, valueRange = 0.05f..1f)
+            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) { items(presets.take(120)) { preset -> Button(onClick = { vm.setBrushType(preset.type); vm.setBrushSize((24f*preset.sizeMultiplier).coerceIn(1f, 300f)); vm.setBrushDefaults(opacity = preset.opacity) }) { Text("${preset.name}  •  ${preset.family}  •  ${preset.type.name.lowercase()}") } } }
         }
     }
 }

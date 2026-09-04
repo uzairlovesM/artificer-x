@@ -67,7 +67,7 @@ class LayerBitmapStore
 
         /** v0.4.30 resize_canvas tool backing: replaces every given
          *  layer's bitmap with a new-dimension one, drawing the old
-         *  content anchored at (0,0) — this naturally crops content that
+         *  content anchored at (0, 0) — this naturally crops content that
          *  falls outside the new bounds and pads with transparency where
          *  the new canvas is larger, rather than rescaling pixels (see
          *  ResizeCanvas tool doc in ToolRegistry for why crop/pad and not
@@ -237,7 +237,7 @@ class LayerBitmapStore
         /** v0.4.30 Transform tool: applies an incremental Matrix transform
          *  (translate + uniform scale + rotate about a pivot) directly to
          *  a layer's bitmap in place — mirrors [flipLayer]'s
-         *  createBitmap(source, matrix, filter=true) approach so transform
+         *  createBitmap(source, matrix, filter = true) approach so transform
          *  quality matches the existing flip operation. Called once per
          *  gesture-update frame from StudioViewModel.transformActiveLayer
          *  with that frame's small delta (not the total drag), so the

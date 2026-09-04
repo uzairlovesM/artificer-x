@@ -25,15 +25,15 @@ interface WorkspaceFsEntryPoint { fun fs(): WorkspaceFileSystem }
 
 @Composable
 fun WorkspaceFileSystemScreen(onBack:()->Unit){
-    val context=androidx.compose.ui.platform.LocalContext.current
-    val activity=context as android.app.Activity
-    val ep=EntryPointAccessors.fromActivity(activity,WorkspaceFsEntryPoint::class.java)
-    val fs=ep.fs()
-    val roots=listOf("works" to fs.roots.works,"cache" to fs.roots.cache,"system" to fs.roots.system,"plugins" to fs.roots.plugins,"models" to fs.roots.models,"exports" to fs.roots.exports,"imports" to fs.roots.imports,"logs" to fs.roots.logs,"temp" to fs.roots.temp,"thumbnails" to fs.roots.thumbnails,"backups" to fs.roots.backups,"autosave" to fs.roots.autosave,"projects" to fs.roots.projects,"recipes" to fs.roots.recipes)
-    Scaffold(topBar={WorkspaceTopBar("Workspace Files","Inspect the real on-device Artificer-X data tree",onBack)}){pad->
-        Column(Modifier.fillMaxSize().padding(pad).padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-            Button(onClick={fs.ensureReady()}){Text("Initialize / refresh")}; Text("${fs.roots.root.absolutePath}\nTotal ${fs.usageBytes()} bytes")
-            LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)){items(roots){(n,f)->Column{Text(n);Text(f.absolutePath);Text("${f.length()} bytes • ${f.walkTopDown().count{it.isFile}} files",style=androidx.compose.material3.MaterialTheme.typography.bodySmall)}}}
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val activity = context as android.app.Activity
+    val ep = EntryPointAccessors.fromActivity(activity, WorkspaceFsEntryPoint::class.java)
+    val fs = ep.fs()
+    val roots = listOf("works" to fs.roots.works, "cache" to fs.roots.cache, "system" to fs.roots.system, "plugins" to fs.roots.plugins, "models" to fs.roots.models, "exports" to fs.roots.exports, "imports" to fs.roots.imports, "logs" to fs.roots.logs, "temp" to fs.roots.temp, "thumbnails" to fs.roots.thumbnails, "backups" to fs.roots.backups, "autosave" to fs.roots.autosave, "projects" to fs.roots.projects, "recipes" to fs.roots.recipes)
+    Scaffold(topBar = {WorkspaceTopBar("Workspace Files", "Inspect the real on-device Artificer-X data tree", onBack)}){pad->
+        Column(Modifier.fillMaxSize().padding(pad).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)){
+            Button(onClick = {fs.ensureReady()}){Text("Initialize / refresh")}; Text("${fs.roots.root.absolutePath}\nTotal ${fs.usageBytes()} bytes")
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)){items(roots){(n, f)->Column{Text(n);Text(f.absolutePath);Text("${f.length()} bytes • ${f.walkTopDown().count{it.isFile}} files", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)}}}
         }
     }
 }

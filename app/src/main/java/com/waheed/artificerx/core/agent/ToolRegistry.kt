@@ -1220,19 +1220,19 @@ private fun generateImageTool() = ToolDefinitionDto(function = FunctionDefinitio
 
 private fun readWorkspaceFileTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
     name = "read_workspace_file", description = "Reads a UTF-8 file from the managed ARTIFICER-X/works workspace. Safe path constrained.",
-    parameters = buildJsonObject { put("type","object"); putJsonObject("properties") { putJsonObject("path"){put("type","string")}; putJsonObject("max_chars"){put("type","integer")} }; putJsonArray("required"){add(JsonPrimitive("path"))} }
+    parameters = buildJsonObject { put("type", "object"); putJsonObject("properties") { putJsonObject("path"){put("type", "string")}; putJsonObject("max_chars"){put("type", "integer")} }; putJsonArray("required"){add(JsonPrimitive("path"))} }
 ))
 private fun writeWorkspaceFileTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
     name = "write_workspace_file", description = "Writes a UTF-8 file into the managed ARTIFICER-X/works workspace using an atomic replace.",
-    parameters = buildJsonObject { put("type","object"); putJsonObject("properties") { putJsonObject("path"){put("type","string")}; putJsonObject("content"){put("type","string")} }; putJsonArray("required"){add(JsonPrimitive("path"));add(JsonPrimitive("content"))} }
+    parameters = buildJsonObject { put("type", "object"); putJsonObject("properties") { putJsonObject("path"){put("type", "string")}; putJsonObject("content"){put("type", "string")} }; putJsonArray("required"){add(JsonPrimitive("path"));add(JsonPrimitive("content"))} }
 ))
 private fun listWorkspaceDirectoryTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
     name = "list_workspace_directory", description = "Lists files and directories inside the managed ARTIFICER-X/works workspace.",
-    parameters = buildJsonObject { put("type","object"); putJsonObject("properties"){putJsonObject("path"){put("type","string")}} }
+    parameters = buildJsonObject { put("type", "object"); putJsonObject("properties"){putJsonObject("path"){put("type", "string")}} }
 ))
 private fun replaceWorkspaceTextTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
     name = "replace_workspace_text", description = "Replaces a precise text fragment in a managed workspace file. Prefer this for small code patches.",
-    parameters = buildJsonObject { put("type","object"); putJsonObject("properties"){putJsonObject("path"){put("type","string")};putJsonObject("old"){put("type","string")};putJsonObject("new"){put("type","string")};putJsonObject("all"){put("type","boolean")}};putJsonArray("required"){add(JsonPrimitive("path"));add(JsonPrimitive("old"));add(JsonPrimitive("new"))} }
+    parameters = buildJsonObject { put("type", "object"); putJsonObject("properties"){putJsonObject("path"){put("type", "string")};putJsonObject("old"){put("type", "string")};putJsonObject("new"){put("type", "string")};putJsonObject("all"){put("type", "boolean")}};putJsonArray("required"){add(JsonPrimitive("path"));add(JsonPrimitive("old"));add(JsonPrimitive("new"))} }
 ))
 
 private fun createFileTool() = ToolDefinitionDto(function = FunctionDefinitionDto(

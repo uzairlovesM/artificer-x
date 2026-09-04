@@ -203,7 +203,7 @@ data class ApiErrorDto(
 /**
  * v0.4.30 REAL STREAMING: OpenAI-compatible SSE delta-chunk shape,
  * received one per `data: {...}` line while `stream: true` is set on
- * the request. Previously ArtificerX never actually sent stream=true
+ * the request. Previously ArtificerX never actually sent stream = true
  * anywhere and always waited for one full ChatCompletionResponse
  * before showing anything — the "streaming" chat bubble was fake, a
  * single AgentTextChunk containing the entire finished reply. These
