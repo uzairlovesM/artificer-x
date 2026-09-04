@@ -35,7 +35,12 @@ class AndroidToolchainManager @Inject constructor() {
         )
     }
 
-    private fun commandExists(command:String):Boolean = runCatching {
-        ProcessBuilder(command,"--version").redirectErrorStream(true).start().use { it.waitFor()==0 }
+    private fun commandExists(command: String): Boolean = runCatching {
+        val process = ProcessBuilder(command, "--version").redirectErrorStream(true).start()
+        try {
+            process.waitFor() == 0
+        } finally {
+            process.destroy()
+        }
     }.getOrDefault(false)
 }

@@ -4,8 +4,10 @@ import com.waheed.artificerx.core.network.FunctionDefinitionDto
 import com.waheed.artificerx.core.runtime.RuntimeToolCatalog
 import com.waheed.artificerx.core.builtin.BuiltinRecipeTools
 import com.waheed.artificerx.core.network.ToolDefinitionDto
+import com.waheed.artificerx.core.util.putJsonArray
+import com.waheed.artificerx.core.util.putJsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -1124,20 +1126,6 @@ object ToolRegistry {
         )
 }
 
-internal fun kotlinx.serialization.json.JsonObjectBuilder.putJsonObject(
-    key: String,
-    builderAction: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit,
-) {
-    put(key, buildJsonObject(builderAction))
-}
-
-internal fun kotlinx.serialization.json.JsonObjectBuilder.putJsonArray(
-    key: String,
-    builderAction: kotlinx.serialization.json.JsonArrayBuilder.() -> Unit,
-) {
-    put(key, buildJsonArray(builderAction))
-}
-
 private fun listArtifactsTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
         name = "list_artifacts",
         description = "Lists real artifacts stored in the active workspace, optionally filtered by name or MIME type.",
@@ -1182,8 +1170,6 @@ private fun listArtifactsTool() = ToolDefinitionDto(function = FunctionDefinitio
         description = "Returns a compact local runtime status including registered tools and plugin contracts.",
         parameters = buildJsonObject { put("type", "object"); putJsonObject("properties") {} },
     ))
-
-}
 
 private fun exportWorkspaceBundleTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
     name = "export_workspace_bundle",

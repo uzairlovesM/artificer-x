@@ -45,7 +45,7 @@ fun SystemObservatoryScreen(onBack: () -> Unit) {
         item { MetricCard("Available RAM", "${(memory.availMem/1048576)} MiB", "system reported") }
         item { MetricCard("Workspace", "${fs.usageBytes()/1024} KiB", fs.roots.root.absolutePath) }
         item { Text("Managed paths", style=androidx.compose.material3.MaterialTheme.typography.titleMedium) }
-        items(dirs) { (name,file) -> Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(12.dp), horizontalArrangement=Arrangement.SpaceBetween) { Column(Modifier.weight(1f)){Text(name);Text(file.absolutePath, style=androidx.compose.material3.MaterialTheme.typography.bodySmall)} Text("${fs.listFiles(file, false).size} files") } } }
+        items(dirs) { (name,file) -> Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(12.dp), horizontalArrangement=Arrangement.SpaceBetween) { Column(Modifier.weight(1f)){Text(name);Text(file.absolutePath, style=androidx.compose.material3.MaterialTheme.typography.bodySmall)}; Text("${fs.listFiles(file, false).size} files") } } }
     }
 }
 

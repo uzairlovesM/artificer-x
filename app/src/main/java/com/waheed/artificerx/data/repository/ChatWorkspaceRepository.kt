@@ -11,6 +11,8 @@ import com.waheed.artificerx.domain.model.ChatMessageRole
 import com.waheed.artificerx.domain.model.ToolCallEntry
 import com.waheed.artificerx.domain.model.ToolCallStatus
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.Serializable
 import javax.inject.Inject

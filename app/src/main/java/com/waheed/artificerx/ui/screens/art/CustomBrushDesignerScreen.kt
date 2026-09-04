@@ -33,7 +33,7 @@ import java.util.UUID
 @Composable
 fun CustomBrushDesignerScreen(store: CustomBrushStore, onBack: () -> Unit) {
     var name by remember { mutableStateOf("My Brush") }
-    var baseType by remember { mutableStateOf(BrushType.INK.name) }
+    var baseType by remember { mutableStateOf(BrushType.INK_PEN.name) }
     var size by remember { mutableFloatStateOf(24f) }
     var opacity by remember { mutableFloatStateOf(1f) }
     var hardness by remember { mutableFloatStateOf(.75f) }

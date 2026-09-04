@@ -43,7 +43,7 @@ class RuntimeToolExecutor @Inject constructor(
                 { ToolExecutionResult.Success("Runtime tool '$name' patched ${it.absolutePath}") },
                 { ToolExecutionResult.Failure(it.message ?: "replace failed") },
             )
-            "COPY_FILE", "MOVE_FILE", "DELETE_FILE", "HASH_FILE" -> fileOperation(spec.operation, cfg)
+            "COPY_FILE", "MOVE_FILE", "DELETE_FILE", "HASH_FILE" -> fileOperation(spec.operation, ::cfg)
             "HTTP_GET" -> httpGet(cfg("url_template"))
             "RUN_COMMAND" -> {
                 val command = cfg("command_template")

@@ -43,4 +43,4 @@ fun AgentWorkbenchScreen(onBack:()->Unit,onChat:()->Unit,onTools:()->Unit){
  }
 }
 
-@Composable private fun Setting(title:String,subtitle:String,value:Boolean,onToggle:()->Unit){Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){Column(Modifier.weight(1f)){Text(title);Text(subtitle,style=androidx.compose.material3.MaterialTheme.typography.bodySmall)};Switch(value,onClick=onToggle)}}
+@Composable private fun Setting(title:String,subtitle:String,value:Boolean,onToggle:()->Unit){Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp)){Column(Modifier.weight(1f)){Text(title);Text(subtitle,style=androidx.compose.material3.MaterialTheme.typography.bodySmall)};Switch(checked=value,onCheckedChange={onToggle()})}}

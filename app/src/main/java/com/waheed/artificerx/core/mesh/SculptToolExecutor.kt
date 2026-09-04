@@ -71,10 +71,9 @@ class SculptToolExecutor
 
             val distanceToClosestVertex = mesh.vertices.minOfOrNull { (it - hitPoint).length() } ?: Float.MAX_VALUE
             if (distanceToClosestVertex > effectiveRadius * 3f) {
+                val formattedDistance = "%.2f".format(distanceToClosestVertex)
                 return ToolExecutionResult.Failure(
-                    "Hit point ($hitX, $hitY, $hitZ) is too far from the mesh surface (closest vertex is ${"%.2f".format(
-                        distanceToClosestVertex,
-                    )} units away) — call inspect_scene first to see current mesh bounds.",
+                    "Hit point ($hitX, $hitY, $hitZ) is too far from the mesh surface (closest vertex is $formattedDistance units away) — call inspect_scene first to see current mesh bounds.",
                 )
             }
 

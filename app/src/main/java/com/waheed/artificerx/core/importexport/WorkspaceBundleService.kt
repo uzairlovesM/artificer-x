@@ -10,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import javax.inject.Inject
@@ -50,7 +52,7 @@ class WorkspaceBundleService @Inject constructor(
         val entries = buildList {
             add(ArtifactInput("workspace/meta.json", json.encodeToString<WorkspaceBundleMeta>(meta).toByteArray(), "application/json"))
             add(ArtifactInput("workspace/chat.md", transcript.toByteArray(), "text/markdown"))
-            add(ArtifactInput("workspace/memories.json", json.encodeToString(memory.map { WorkspaceMemorySnapshot(it.namespace, it.key, SecretRedaction.redact(it.value), it.updatedAtEpochMillis) }).toByteArray(), "application/json"))
+            add(ArtifactInput("workspace/memories.json", json.encodeToString<List<WorkspaceMemorySnapshot>>(memory.map { WorkspaceMemorySnapshot(it.namespace, it.key, SecretRedaction.redact(it.value), it.updatedAtEpochMillis) }).toByteArray(), "application/json"))
             artifacts.forEach { artifact ->
                 val file = File(artifact.path)
                 if (file.isFile && file.length() <= 50L * 1024L * 1024L) {

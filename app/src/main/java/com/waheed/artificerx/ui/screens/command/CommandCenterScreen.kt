@@ -108,6 +108,6 @@ fun CommandCenterScreen(
 }
 
 @Composable
-private fun ActionButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+private fun androidx.compose.foundation.layout.RowScope.ActionButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
     Button(onClick = onClick, modifier = Modifier.weight(1f)) { Icon(icon, null); Text(label, modifier = Modifier.padding(start = 4.dp)) }
 }

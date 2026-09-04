@@ -6,6 +6,7 @@ import com.waheed.artificerx.core.artifact.ArtifactStore
 import com.waheed.artificerx.data.repository.ProviderConfigRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -34,7 +35,7 @@ class ImageGenerationService @Inject constructor(
     private val json = Json { ignoreUnknownKeys = true }
 
     suspend fun generate(threadId: String, prompt: String, size: String = "1024x1024", modelOverride: String? = null): Result<GeneratedImageArtifact> = withContext(Dispatchers.IO) {
-        val providers = ImageProviderPolicy.rank(kotlinx.coroutines.flow.first(providerConfigRepository.configs))
+        val providers = ImageProviderPolicy.rank(providerConfigRepository.configs.first())
         if (providers.isEmpty()) return@withContext Result.failure(IllegalStateException("No enabled image-capable network provider with an API key is configured."))
         val model = modelOverride?.takeIf { it.isNotBlank() } ?: "gpt-image-1"
         var lastError: Throwable? = null

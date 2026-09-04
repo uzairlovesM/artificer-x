@@ -30,6 +30,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Close
@@ -51,9 +52,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SmallTopAppBar
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -72,6 +73,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.waheed.artificerx.domain.model.DrawToolType
 import com.waheed.artificerx.ui.components.SoftCard
 import com.waheed.artificerx.ui.components.WorkspaceChip
@@ -93,8 +95,8 @@ fun ProArtStudioScreen(
     onText: () -> Unit = {},
     onReference: () -> Unit = {},
 ) {
-    val state by vm.state.collectAsCompat()
-    val bitmap by vm.compositedBitmap.collectAsCompat()
+    val state by vm.state.collectAsStateWithLifecycle()
+    val bitmap by vm.compositedBitmap.collectAsStateWithLifecycle()
     var panel by remember { mutableStateOf("Canvas") }
     var zoom by remember { mutableFloatStateOf(1f) }
     var showGrid by remember { mutableStateOf(false) }
@@ -103,7 +105,7 @@ fun ProArtStudioScreen(
 
     Scaffold(
         topBar = {
-            SmallTopAppBar(
+            TopAppBar(
                 title = {
                     Column {
                         Text(state.projectName, style = MaterialTheme.typography.titleLarge)
@@ -187,7 +189,7 @@ fun ProArtStudioScreen(
 
                 Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { zoom = (zoom - .1f).coerceAtLeast(.5f) }) { Icon(Icons.Filled.Remove, "Zoom out") }
-                    Slider(zoom, { zoom = it }, valueRange = .5f..2.5f, Modifier.weight(1f))
+                    Slider(value = zoom, onValueChange = { zoom = it }, valueRange = .5f..2.5f, modifier = Modifier.weight(1f))
                     Text("${(zoom * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, modifier = Modifier.widthIn(min = 45.dp))
                     IconButton(onClick = { zoom = (zoom + .1f).coerceAtMost(2.5f) }) { Icon(Icons.Filled.Add, "Zoom in") }
                 }
@@ -249,5 +251,3 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawGrid() {
     var y = 0f
     while (y <= size.height) { drawLine(Color.Black.copy(alpha=.06f), Offset(0f,y), Offset(size.width,y), 1f); y += step }
 }
-
-@Composable private fun <T> kotlinx.coroutines.flow.StateFlow<T>.collectAsCompat(): androidx.compose.runtime.State<T> = androidx.compose.runtime.collectAsStateWithLifecycle()

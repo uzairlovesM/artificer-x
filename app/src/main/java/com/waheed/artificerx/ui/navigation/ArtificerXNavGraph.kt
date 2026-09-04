@@ -239,8 +239,8 @@ fun ArtificerXNavGraph(
         composable(Destinations.COLOR_STUDIO) { val parent=remember{navController.getBackStackEntry(Destinations.STUDIO)}; val vm:com.waheed.artificerx.ui.screens.canvas.StudioViewModel=androidx.hilt.navigation.compose.hiltViewModel(parent); ColorStudioScreen(vm,{navController.popBackStack()}) }
         composable(Destinations.TEXT_STUDIO) { val parent=remember{navController.getBackStackEntry(Destinations.STUDIO)}; val vm:com.waheed.artificerx.ui.screens.canvas.StudioViewModel=androidx.hilt.navigation.compose.hiltViewModel(parent); TextStudioScreen(vm,{navController.popBackStack()}) }
         composable(Destinations.REFERENCE_STUDIO) { ReferenceStudioScreen{navController.popBackStack()} }
-        composable(Destinations.AUTOMATION_CENTER) { AutomationCenterScreen { navController.popBackStack() } }
-        composable(Destinations.WORKSPACE_SEARCH_ADVANCED) { WorkspaceSearchScreen { navController.popBackStack() } }
+        composable(Destinations.AUTOMATION_CENTER) { AutomationCenterScreen(onBack = { navController.popBackStack() }) }
+        composable(Destinations.WORKSPACE_SEARCH_ADVANCED) { WorkspaceSearchScreen(onBack = { navController.popBackStack() }) }
         composable(Destinations.AGENT_TIMELINE) { AgentTimelineScreen { navController.popBackStack() } }
         composable(Destinations.EXTREME_CONTROL_CENTER) { ExtremeControlCenterScreen(
             onBack = { navController.popBackStack() },
@@ -490,3 +490,26 @@ fun ArtificerXNavGraph(
  * instead of a route-not-found crash.
  */
 @Composable
+private fun PlaceholderScreen(title: String) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Text(
+                text = "Coming in a later build phase",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+    }
+}

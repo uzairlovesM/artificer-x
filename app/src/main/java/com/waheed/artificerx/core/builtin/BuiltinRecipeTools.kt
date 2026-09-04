@@ -3,10 +3,12 @@ package com.waheed.artificerx.core.builtin
 import com.waheed.artificerx.core.agent.ToolExecutionResult
 import com.waheed.artificerx.core.network.FunctionDefinitionDto
 import com.waheed.artificerx.core.network.ToolDefinitionDto
+import com.waheed.artificerx.core.util.putJsonArray
+import com.waheed.artificerx.core.util.putJsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.buildJsonArray
 
 object BuiltinRecipeTools {
     const val INVOKE = "invoke_builtin_recipe"
