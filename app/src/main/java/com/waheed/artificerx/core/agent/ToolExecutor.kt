@@ -39,7 +39,7 @@ class ToolExecutor
         private val runtimeToolExecutor: RuntimeToolExecutor,
         private val builtinRecipeCatalog: BuiltinRecipeCatalog,
         private val builtinRecipeExecutor: BuiltinRecipeExecutor,
-        private val nativeRasterCore: com.waheed.artificerx.core.native.NativeRasterCore,
+        private val nativeRasterCore: com.waheed.artificerx.core.nativeops.NativeRasterCore,
         private val sceneCompositionEngine: com.waheed.artificerx.core.creative.SceneCompositionEngine,
         private val androidToolchainManager: com.waheed.artificerx.core.terminal.AndroidToolchainManager,
     ) {

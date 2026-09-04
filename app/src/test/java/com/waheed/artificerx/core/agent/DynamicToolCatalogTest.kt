@@ -7,8 +7,15 @@ import org.junit.Test
 class DynamicToolCatalogTest {
     @Test fun runtime_catalog_has_real_audited_operations() {
         assertThat(RuntimeToolCatalog.SUPPORTED_OPERATIONS).containsAtLeast(
-            "WRITE_FILE", "READ_FILE", "REPLACE_TEXT", "COPY_FILE",
-            "MOVE_FILE", "DELETE_FILE", "HASH_FILE", "HTTP_GET", "RUN_COMMAND",
+            "WRITE_FILE",
+            "READ_FILE",
+            "REPLACE_TEXT",
+            "COPY_FILE",
+            "MOVE_FILE",
+            "DELETE_FILE",
+            "HASH_FILE",
+            "HTTP_GET",
+            "RUN_COMMAND",
         )
         assertThat(RuntimeToolCatalog.SUPPORTED_OPERATIONS).doesNotContain("NO_OP")
     }

@@ -101,7 +101,8 @@ android {
 
         externalNativeBuild {
             cmake {
-                arguments += listOf(
+                arguments +=
+                    listOf(
                     "-DCMAKE_BUILD_TYPE=Release",
                     "-DARTIFICERX_NATIVE_ENABLE_SIMD=ON",
                 )

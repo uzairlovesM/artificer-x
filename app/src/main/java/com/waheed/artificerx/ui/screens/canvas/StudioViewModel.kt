@@ -42,7 +42,7 @@ class StudioViewModel
         private val projectRepository: com.waheed.artificerx.data.repository.ProjectRepository,
         private val bitmapStore: com.waheed.artificerx.core.render.LayerBitmapStore,
         private val compositor: com.waheed.artificerx.core.render.CanvasCompositor,
-        private val timelapseRecorder: com.waheed.artificerx.core.timelapse.TimelapseRecorder,,
+        private val timelapseRecorder: com.waheed.artificerx.core.timelapse.TimelapseRecorder,
         private val animationFrameStore: AnimationFrameStore,
         private val mangaLayoutStore: MangaLayoutStore,
     
