@@ -11,7 +11,9 @@ class PluginLifecycleCoordinator @Inject constructor(private val manager: Plugin
         val visited = mutableSetOf<String>()
         suspend fun visit(id: String) {
             if (!visited.add(id)) return
-            PluginDependencyGraph.dependenciesFor(id).forEach(::visit)
+            for (dep in PluginDependencyGraph.dependenciesFor(id)) {
+                visit(dep)
+            }
             catalog[id]?.let { manager.install(it) }
         }
         visit(pluginId)

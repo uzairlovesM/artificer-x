@@ -28,8 +28,9 @@ import javax.inject.Inject
 @HiltViewModel
 class WorkspaceSearchViewModel @Inject constructor(private val index: WorkspaceIndex): ViewModel() {
     val query = MutableStateFlow("")
-    val results = MutableStateFlow<List<WorkspaceIndex.Entry>>(emptyList()).asStateFlow()
-    fun search(q: String) { query.value=q; viewModelScope.launch { results.value=index.scan(q) } }
+    private val _results = MutableStateFlow<List<WorkspaceIndex.Entry>>(emptyList())
+    val results = _results.asStateFlow()
+    fun search(q: String) { query.value=q; viewModelScope.launch { _results.value=index.scan(q) } }
 }
 
 @Composable fun WorkspaceSearchScreen(onBack:()->Unit, vm: WorkspaceSearchViewModel = hiltViewModel()) {

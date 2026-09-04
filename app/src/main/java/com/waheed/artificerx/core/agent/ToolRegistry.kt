@@ -1124,20 +1124,21 @@ object ToolRegistry {
         )
 }
 
-private fun kotlinx.serialization.json.JsonObjectBuilder.putJsonObject(
+internal fun kotlinx.serialization.json.JsonObjectBuilder.putJsonObject(
     key: String,
     builderAction: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit,
 ) {
     put(key, buildJsonObject(builderAction))
 }
 
-private fun kotlinx.serialization.json.JsonObjectBuilder.putJsonArray(
+internal fun kotlinx.serialization.json.JsonObjectBuilder.putJsonArray(
     key: String,
     builderAction: kotlinx.serialization.json.JsonArrayBuilder.() -> Unit,
 ) {
     put(key, buildJsonArray(builderAction))
+}
 
-    private fun listArtifactsTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
+private fun listArtifactsTool() = ToolDefinitionDto(function = FunctionDefinitionDto(
         name = "list_artifacts",
         description = "Lists real artifacts stored in the active workspace, optionally filtered by name or MIME type.",
         parameters = buildJsonObject {

@@ -13,7 +13,7 @@ object BuiltinRecipeTools {
     const val SEARCH = "search_builtin_recipes"
 
     fun definitions(): List<ToolDefinitionDto> = listOf(
-        ToolDefinitionDto(FunctionDefinitionDto(INVOKE, "Execute one of 1000+ built-in free capability recipes using the audited runtime operation layer.", buildJsonObject {
+        ToolDefinitionDto(function = FunctionDefinitionDto(INVOKE, "Execute one of 1000+ built-in free capability recipes using the audited runtime operation layer.", buildJsonObject {
             put("type", "object")
             putJsonObject("properties") {
                 putJsonObject("recipe_id") { put("type", "string") }
@@ -21,7 +21,7 @@ object BuiltinRecipeTools {
             }
             putJsonArray("required") { add(JsonPrimitive("recipe_id")) }
         })),
-        ToolDefinitionDto(FunctionDefinitionDto(SEARCH, "Search the built-in free capability recipe catalog and return the best matches.", buildJsonObject {
+        ToolDefinitionDto(function = FunctionDefinitionDto(SEARCH, "Search the built-in free capability recipe catalog and return the best matches.", buildJsonObject {
             put("type", "object")
             putJsonObject("properties") { putJsonObject("query") { put("type", "string") }; putJsonObject("limit") { put("type", "integer") } }
             putJsonArray("required") { add(JsonPrimitive("query")) }

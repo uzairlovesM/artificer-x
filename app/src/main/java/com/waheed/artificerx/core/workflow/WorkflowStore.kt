@@ -25,11 +25,11 @@ class WorkflowStore @Inject constructor(@ApplicationContext private val context:
 
     suspend fun upsert(workflow: WorkflowDefinition) = context.workflowDataStore.edit { prefs ->
         val current = runCatching { json.decodeFromString<List<WorkflowDefinition>>(prefs[key].orEmpty()) }.getOrDefault(emptyList())
-        prefs[key] = json.encodeToString((current.filterNot { it.id == workflow.id } + workflow).takeLast(100))
+        prefs[key] = json.encodeToString<List<WorkflowDefinition>>((current.filterNot { it.id == workflow.id } + workflow).takeLast(100))
     }
 
     suspend fun delete(id: String) = context.workflowDataStore.edit { prefs ->
         val current = runCatching { json.decodeFromString<List<WorkflowDefinition>>(prefs[key].orEmpty()) }.getOrDefault(emptyList())
-        prefs[key] = json.encodeToString(current.filterNot { it.id == id })
+        prefs[key] = json.encodeToString<List<WorkflowDefinition>>(current.filterNot { it.id == id })
     }
 }

@@ -10,6 +10,6 @@ data class ArtifactManifest(val version: Int = 1, val createdAtEpochMillis: Long
 
 object ArtifactManifestCodec {
     private val json = Json { prettyPrint = true; encodeDefaults = true }
-    fun encode(manifest: ArtifactManifest): String = json.encodeToString(manifest)
+    fun encode(manifest: ArtifactManifest): String = json.encodeToString<ArtifactManifest>(manifest)
     fun decode(raw: String): ArtifactManifest? = runCatching { json.decodeFromString<ArtifactManifest>(raw) }.getOrNull()
 }

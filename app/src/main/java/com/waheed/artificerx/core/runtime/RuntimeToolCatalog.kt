@@ -60,7 +60,7 @@ object RuntimeToolCatalog {
         val base = requireNotNull(root) { "RuntimeToolCatalog.init(context) must be called first" }
         val normalized = spec.copy(name = spec.name.lowercase())
         val target = File(base, "${normalized.name}.json")
-        runCatching {
+        return runCatching {
             target.writeText(json.encodeToString(RuntimeToolSpec.serializer(), normalized))
             tools[normalized.name] = normalized
         }.fold(onSuccess = { Result.success(normalized) }, onFailure = { Result.failure(it) })

@@ -28,17 +28,19 @@ class AIResponseArtifactMaterializer @Inject constructor(
 
     suspend fun materialize(threadId: String, response: String): List<ArtifactRef> {
         if (threadId.isBlank() || response.isBlank()) return emptyList()
-        return blockRegex.findAll(response)
-            .mapNotNull { match ->
-                val name = match.groupValues[1].trim()
-                val content = match.groupValues[2]
-                if (name.isBlank() || content.isBlank()) return@mapNotNull null
-                val mime = mimeFor(name)
-                runCatching { artifactStore.writeText(threadId, name, content, mime, "ai_response_materializer") }.getOrNull()
-            }
-            .distinctBy { it.name }
-            .take(100)
-            .toList()
+        val results = mutableListOf<ArtifactRef>()
+        val seenNames = mutableSetOf<String>()
+        for (match in blockRegex.findAll(response)) {
+            val name = match.groupValues[1].trim()
+            val content = match.groupValues[2]
+            if (name.isBlank() || content.isBlank()) continue
+            if (!seenNames.add(name)) continue
+            val mime = mimeFor(name)
+            val ref = runCatching { artifactStore.writeText(threadId, name, content, mime, "ai_response_materializer") }.getOrNull()
+            if (ref != null) results += ref
+            if (results.size >= 100) break
+        }
+        return results
     }
 
     private fun mimeFor(name: String): String = when (name.substringAfterLast('.', "").lowercase()) {

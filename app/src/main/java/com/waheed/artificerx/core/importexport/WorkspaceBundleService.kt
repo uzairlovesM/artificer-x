@@ -48,7 +48,7 @@ class WorkspaceBundleService @Inject constructor(
         }
         val meta = WorkspaceBundleMeta(threadId = threadId, exportedAtEpochMillis = System.currentTimeMillis(), messageCount = messages.size, artifactCount = artifacts.size)
         val entries = buildList {
-            add(ArtifactInput("workspace/meta.json", json.encodeToString(meta).toByteArray(), "application/json"))
+            add(ArtifactInput("workspace/meta.json", json.encodeToString<WorkspaceBundleMeta>(meta).toByteArray(), "application/json"))
             add(ArtifactInput("workspace/chat.md", transcript.toByteArray(), "text/markdown"))
             add(ArtifactInput("workspace/memories.json", json.encodeToString(memory.map { WorkspaceMemorySnapshot(it.namespace, it.key, SecretRedaction.redact(it.value), it.updatedAtEpochMillis) }).toByteArray(), "application/json"))
             artifacts.forEach { artifact ->

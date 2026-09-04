@@ -39,7 +39,7 @@ object CapabilityGraph {
         Node("search", "Workspace Search", setOf(PluginCategory.FILE, PluginCategory.DATABASE), setOf("search_workspace")),
         Node("diagnostics", "Runtime Diagnostics", setOf(PluginCategory.OTHER, PluginCategory.SECURITY), setOf("get_workspace_status")),
         Node("model-routing", "Model Routing", setOf(PluginCategory.AI_PROVIDER, PluginCategory.MODEL, PluginCategory.AGENT), setOf("get_workspace_status")),
-        Node("local-ai", "Local AI Runtime", setOf(PluginCategory.MODEL, PluginCategory.AI_PROVIDER, PluginCategory.SECURITY), set()),
+        Node("local-ai", "Local AI Runtime", setOf(PluginCategory.MODEL, PluginCategory.AI_PROVIDER, PluginCategory.SECURITY), emptySet()),
         Node("web-tools", "Web Toolchain", setOf(PluginCategory.WEB, PluginCategory.NETWORKING, PluginCategory.DOCUMENT), setOf("web_search", "web_fetch")),
         Node("creative-export", "Creative Export", setOf(PluginCategory.CANVAS, PluginCategory.EXPORT), setOf("inspect_canvas", "create_file")),
     )

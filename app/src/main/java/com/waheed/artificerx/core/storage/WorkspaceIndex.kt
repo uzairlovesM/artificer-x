@@ -16,6 +16,6 @@ class WorkspaceIndex @Inject constructor(private val fs: WorkspaceFileSystem) {
             val relative = file.relativeTo(fs.roots.root).path.replace(File.separatorChar, '/')
             val match = q.isBlank() || file.name.lowercase().contains(q) || relative.lowercase().contains(q)
             if (!match) null else Entry(file.absolutePath, file.name, relative, file.length(), file.lastModified(), file.extension.lowercase())
-        }.sortedByDescending { it.modifiedAt }.take(limit)
+        }.sortedByDescending { it.modifiedAt }.take(limit).toList()
     }
 }

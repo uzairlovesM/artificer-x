@@ -60,6 +60,10 @@ import com.waheed.artificerx.ui.screens.system.SystemObservatoryScreen
 import com.waheed.artificerx.ui.screens.art.CustomBrushDesignerScreen
 import com.waheed.artificerx.core.art.CustomBrushStore
 
+import com.waheed.artificerx.ui.screens.system.AutomationCenterScreen
+import com.waheed.artificerx.ui.screens.system.WorkspaceSearchScreen
+import com.waheed.artificerx.ui.screens.ai.AgentTimelineScreen
+import com.waheed.artificerx.ui.screens.system.ExtremeControlCenterScreen
 @dagger.hilt.EntryPoint
 @dagger.hilt.InstallIn(dagger.hilt.android.components.ActivityComponent::class)
 interface CustomBrushEntryPoint { fun store(): CustomBrushStore }
@@ -77,10 +81,6 @@ interface CustomBrushEntryPoint { fun store(): CustomBrushStore }
  * morphism brand's "soft depth" feel rather than Android's default
  * hard-cut) across every destination via NavHost's shared defaults.
  */
-import com.waheed.artificerx.ui.screens.system.AutomationCenterScreen
-import com.waheed.artificerx.ui.screens.system.WorkspaceSearchScreen
-import com.waheed.artificerx.ui.screens.ai.AgentTimelineScreen
-import com.waheed.artificerx.ui.screens.system.ExtremeControlCenterScreen
 
 @Composable
 fun ArtificerXNavGraph(

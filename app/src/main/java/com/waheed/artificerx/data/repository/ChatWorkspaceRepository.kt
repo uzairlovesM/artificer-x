@@ -96,7 +96,7 @@ class ChatWorkspaceRepository @Inject constructor(
                 attachedImageUri = message.attachedImageUri,
                 autoSavedFileName = message.autoSavedFileName,
                 autoSavedUri = message.autoSavedUri?.toString(),
-                toolCallsJson = json.encodeToString(storedCalls),
+                toolCallsJson = json.encodeToString<List<StoredToolCall>>(storedCalls),
             ),
         )
         threadDao.touch(threadId, System.currentTimeMillis())

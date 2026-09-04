@@ -33,7 +33,7 @@ class BuiltinRecipeExecutor @Inject constructor(
             }
             val result = runtimeExecutor.execute(runtimeName, args)
             when (result) {
-                is ToolExecutionResult.Failure -> return ToolExecutionResult.Failure("${recipe.id} step $index failed: ${result.reason}")
+                is ToolExecutionResult.Failure -> return ToolExecutionResult.Failure("${recipe.id} step $index failed: ${result.errorMessage}")
                 is ToolExecutionResult.Success -> outputs += "step[$index]: ${result.message}"
                 else -> outputs += "step[$index]: $result"
             }

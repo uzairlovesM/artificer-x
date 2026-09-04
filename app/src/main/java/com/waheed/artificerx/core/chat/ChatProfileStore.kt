@@ -32,10 +32,10 @@ class ChatProfileStore @Inject constructor(@ApplicationContext private val conte
     suspend fun setProfileForThread(threadId:String, profileId:String) = context.chatProfilesDataStore.edit { prefs ->
         val current=runCatching { json.decodeFromString<Map<String,String>>(prefs[threadProfilesKey].orEmpty()) }.getOrDefault(emptyMap()).toMutableMap()
         current[threadId]=profileId
-        prefs[threadProfilesKey]=json.encodeToString(current)
+        prefs[threadProfilesKey]=json.encodeToString<Map<String, String>>(current)
         prefs[activeKey]=profileId
     }
-    suspend fun saveProfiles(value: List<ChatProfile>) = context.chatProfilesDataStore.edit { it[profilesKey] = json.encodeToString(value) }
+    suspend fun saveProfiles(value: List<ChatProfile>) = context.chatProfilesDataStore.edit { it[profilesKey] = json.encodeToString<List<ChatProfile>>(value) }
     suspend fun setActive(id: String) = context.chatProfilesDataStore.edit { it[activeKey] = id }
     private fun defaults() = listOf(
         ChatProfile("creative","Creative Studio",temperature=0.25,reasoningEnabled=true,webResearch=true,creativeAutonomy=true,contextMode=ContextMode.DEEP),

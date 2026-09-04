@@ -46,13 +46,13 @@ class PluginManager @Inject constructor(@ApplicationContext private val context:
         visit(pluginId)
         return installed
     }
-    suspend fun uninstall(pluginId: String) { context.pluginDataStore.edit { prefs -> prefs[key] = json.encodeToString(read(prefs).filterNot { it.id == pluginId }) } }
-    suspend fun setEnabled(pluginId: String, enabled: Boolean) { context.pluginDataStore.edit { prefs -> prefs[key] = json.encodeToString(read(prefs).map { if (it.id == pluginId) it.copy(enabled = enabled) else it }) } }
+    suspend fun uninstall(pluginId: String) { context.pluginDataStore.edit { prefs -> prefs[key] = json.encodeToString<List<InstalledPluginRecord>>(read(prefs).filterNot { it.id == pluginId }) } }
+    suspend fun setEnabled(pluginId: String, enabled: Boolean) { context.pluginDataStore.edit { prefs -> prefs[key] = json.encodeToString<List<InstalledPluginRecord>>(read(prefs).map { if (it.id == pluginId) it.copy(enabled = enabled) else it }) } }
     fun catalog(): List<PluginDescriptor> = BuiltinPluginCatalog.plugins
 
     private suspend fun update(id: String, provider: (PluginDescriptor) -> InstalledPluginRecord) {
         val plugin = BuiltinPluginCatalog.plugins.firstOrNull { it.id == id } ?: return
-        context.pluginDataStore.edit { prefs -> prefs[key] = json.encodeToString((read(prefs).filterNot { it.id == id }) + provider(plugin)) }
+        context.pluginDataStore.edit { prefs -> prefs[key] = json.encodeToString<List<InstalledPluginRecord>>((read(prefs).filterNot { it.id == id }) + provider(plugin)) }
     }
     private fun read(prefs: Preferences): List<InstalledPluginRecord> = runCatching { json.decodeFromString<List<InstalledPluginRecord>>(prefs[key].orEmpty()) }.getOrDefault(emptyList())
 }
