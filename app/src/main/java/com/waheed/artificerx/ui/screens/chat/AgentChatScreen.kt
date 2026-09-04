@@ -93,6 +93,7 @@ fun AgentChatScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
     var showThreads by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var showProfiles by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
 
     LaunchedEffect(studioViewModel) {
         viewModel.bindStudioViewModel(studioViewModel)
@@ -175,6 +176,7 @@ fun AgentChatScreen(
             onClear = viewModel::clearConversation,
             onNewThread = viewModel::newThread,
             onOpenThreads = { showThreads = true },
+            onOpenProfiles = { showProfiles = true },
         )
 
         if (showThreads) {
@@ -192,6 +194,30 @@ fun AgentChatScreen(
                     }
                 },
                 confirmButton = { TextButton(onClick = { showThreads = false; viewModel.newThread() }) { Text("New chat") } },
+            )
+        }
+
+        if (showProfiles) {
+            AlertDialog(
+                onDismissRequest = { showProfiles = false },
+                title = { Text("AI chat profiles") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        state.chatProfiles.forEach { profile ->
+                            androidx.compose.material3.Surface(
+                                onClick = { viewModel.setActiveProfile(profile.id); showProfiles = false },
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
+                                color = if(profile.id==state.activeProfileId) GoldPrimary.copy(alpha=.18f) else MaterialTheme.colorScheme.surfaceVariant,
+                            ) {
+                                Row(modifier=Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically){
+                                    Column(Modifier.weight(1f)){ Text(profile.name, fontWeight=FontWeight.SemiBold); Text("temp ${profile.temperature} • ${profile.contextMode.name.lowercase()} context", style=MaterialTheme.typography.labelSmall) }
+                                    if(profile.id==state.activeProfileId) Icon(Icons.Filled.Check, contentDescription="Active")
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick={showProfiles=false}){Text("Close")} },
             )
         }
 
@@ -248,6 +274,7 @@ private fun ChatTopBar(
     onClear: () -> Unit,
     onNewThread: () -> Unit,
     onOpenThreads: () -> Unit,
+    onOpenProfiles: () -> Unit,
 ) {
     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") }
@@ -263,6 +290,7 @@ private fun ChatTopBar(
             }
         }
         Spacer(modifier = Modifier.weight(1f))
+        IconButton(onClick = onOpenProfiles) { Icon(Icons.Filled.Build, contentDescription = "AI profiles", tint = GoldPrimary) }
         IconButton(onClick = onNewThread) { Icon(Icons.Filled.Add, contentDescription = "New conversation", tint = GoldPrimary) }
         IconButton(onClick = onClear) { Icon(Icons.Filled.DeleteSweep, contentDescription = "Delete conversation", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
     }

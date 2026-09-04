@@ -1,0 +1,10 @@
+{
+  "device_profile": "Android 13 / API 33 private device",
+  "compileSdk": 36,
+  "targetSdk": 36,
+  "minSdk": 33,
+  "ndkVersion": "29.0.14206865",
+  "abis": ["arm64-v8a", "x86_64"],
+  "nativeLanguage": "C++20",
+  "policy": "Inspect environment at runtime; never assume a compiler or SDK component exists."
+}

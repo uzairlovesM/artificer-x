@@ -31,8 +31,10 @@ import com.waheed.artificerx.core.agent.ToolRegistry
 fun ToolUniverseScreen(onBack: () -> Unit) {
     var query by remember { mutableStateOf("") }
     val tools = remember(query) {
-        ToolRegistry.ALL_TOOLS.filter {
-            query.isBlank() || it.function.name.contains(query, true) || it.function.description.contains(query, true)
+        ToolRegistry.ALL_TOOLS.filter { tool ->
+            // Terminal execution is an AI-only capability by design for this private build.
+            tool.function.name !in setOf("run_terminal_command", "run_terminal_batch") &&
+                (query.isBlank() || tool.function.name.contains(query, true) || tool.function.description.contains(query, true))
         }
     }
     Scaffold(topBar = {
@@ -43,7 +45,7 @@ fun ToolUniverseScreen(onBack: () -> Unit) {
                 Icon(Icons.Filled.Search, null)
                 OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Search tools") }, modifier = Modifier.weight(1f), singleLine = true)
             }
-            Text("${tools.size} matching tools • ${ToolRegistry.ALL_TOOLS.size} total", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(vertical = 10.dp))
+            Text("${tools.size} visible tools • ${ToolRegistry.ALL_TOOLS.size} agent capabilities • terminal is AI-only", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(vertical = 10.dp))
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(tools, key = { it.function.name }) { tool ->
                     Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {

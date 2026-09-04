@@ -13,7 +13,10 @@ object AgentExecutionPolicy {
         val lower = prompt.lowercase()
         val artifactRequired = listOf("zip", "file", "download", "export", "image", "pdf", "docx", "project").any(lower::contains)
         val complex = listOf("full", "complete", "build", "research", "multi", "all", "everything", "deep", "audit").count(lower::contains)
-        val iterations = (configuredIterations + complex * 2 + if (artifactRequired) 2 else 0).coerceIn(2, 96)
-        return Budget(iterations, (iterations * 3).coerceIn(12, 192), artifactRequired, networkAvailable)
+        // No artificial application-side ceiling. Provider limits, model context,
+        // Android resources, and explicit cancellation remain the real boundaries.
+        val iterations = UnboundedExecutionPolicy.MAX_APPLICATION_ITERATIONS
+        val toolCalls = UnboundedExecutionPolicy.MAX_APPLICATION_TOOL_CALLS
+        return Budget(iterations, toolCalls, artifactRequired, networkAvailable)
     }
 }

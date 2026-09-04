@@ -32,6 +32,7 @@ import androidx.navigation.compose.rememberNavController
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.waheed.artificerx.ui.navigation.ArtificerXNavGraph
 import com.waheed.artificerx.ui.theme.ArtificerXTheme
+import com.waheed.artificerx.runtime.capability.AdvancedCapabilityCatalog
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -110,6 +111,22 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    /** Expansion surface health is observable without exposing the AI terminal to the UI user. */
+    private fun expansionRuntimeSummary(): Map<String, Int> =
+        com.waheed.artificerx.core.expansion.ExpansionRuntime.summary()
+
+    /** Keeps capability discovery observable to diagnostics without exposing the AI terminal UI. */
+    private fun capabilityRuntimeSnapshot(): Map<String, Any> {
+        val catalog = AdvancedCapabilityCatalog().apply { registerDefaults() }
+        return mapOf(
+            "capabilities" to catalog.all().size,
+            "androidApi" to Build.VERSION.SDK_INT,
+            "process" to packageName,
+            "foreground" to true
+        )
+    }
+
 }
 
 /**

@@ -1,0 +1,7 @@
+{
+  "version": "0.9.0",
+  "generated_files": 1404,
+  "expansion_capabilities": 1400,
+  "words_target": 50000,
+  "wiring": "GeneratedExpansionIndex -> ExpansionRuntime -> MainActivityRuntime/AppRuntimeOrchestrator"
+}

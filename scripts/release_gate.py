@@ -19,7 +19,7 @@ checks = {
     "artifact_store": "ArtifactStore",
     "image_pipeline": "ImageGenerationService",
     "terminal_sandbox": "TerminalSandbox",
-    "dynamic_tools": "DynamicToolCatalog",
+    "runtime_tools": "RuntimeToolCatalog",
     "plugin_catalog": "BuiltinPluginCatalog",
     "workspace_search": "WorkspaceSearch",
     "workspace_import": "WorkspaceBundleImporter",

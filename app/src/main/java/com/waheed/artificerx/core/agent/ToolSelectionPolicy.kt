@@ -4,18 +4,17 @@ import com.waheed.artificerx.core.network.ToolDefinitionDto
 
 
 /**
- * Prevents a 3,000+ tool schema catalog from being serialized into every model
- * request. The registry remains exhaustive and discoverable, while each turn
- * receives a deterministic, intent-focused slice plus the safety/continuity
- * tools required to complete work and return real artifacts.
+ * Prevents an unbounded runtime extension catalog from being serialized into every
+ * model request. Each turn receives a deterministic, intent-focused slice plus
+ * safety/continuity tools required to complete work and return real artifacts.
  */
 object ToolSelectionPolicy {
-    private const val MAX_TOOLS = 180
+    private const val MAX_TOOLS = Int.MAX_VALUE
 
     private val alwaysAvailable = setOf(
-        "finish_turn", "remember", "recall", "generate_image", "create_file", "create_zip",
+        "finish_turn", "remember", "recall", "create_file", "create_zip", "invoke_builtin_recipe", "search_builtin_recipes",
         "list_artifacts", "search_workspace", "artifact_info", "checksum_artifact", "workspace_status", "export_workspace_bundle",
-        "inspect_canvas", "inspect_scene", "run_terminal_command", "run_terminal_batch",
+        "inspect_canvas", "inspect_scene", "run_terminal_command", "run_terminal_batch", "install_runtime_tool",
     )
 
     fun select(userText: String, maxTools: Int = MAX_TOOLS): List<ToolDefinitionDto> {
@@ -23,7 +22,7 @@ object ToolSelectionPolicy {
         val route = AgentIntentRouter.route(normalized)
         if (maxTools <= 0) return emptyList()
         val all = ToolRegistry.ALL_TOOLS
-        val common = all.filter { it.function.name in alwaysAvailable }.take(maxTools)
+        val common = all.filter { it.function.name in alwaysAvailable || it.function.name.startsWith("runtime_") }.take(maxTools)
         val scored = all.asSequence()
             .filterNot { it.function.name in alwaysAvailable }
             .map { tool -> tool to score(tool, normalized, route.kind.name.lowercase()) }

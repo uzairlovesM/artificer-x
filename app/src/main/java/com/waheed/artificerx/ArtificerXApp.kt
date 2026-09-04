@@ -1,5 +1,10 @@
 package com.waheed.artificerx
 
+import com.waheed.artificerx.core.runtime.RuntimeToolCatalog
+import com.waheed.artificerx.core.builtin.BuiltinRecipeCatalog
+import com.waheed.artificerx.core.ai.intelligence.StrategyCatalog
+import com.waheed.artificerx.runtime.capability.AdvancedCapabilityCatalog
+
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -76,7 +81,15 @@ class ArtificerXApp :
     @Inject
     lateinit var automationScheduler: com.waheed.artificerx.core.automation.AutomationScheduler
 
+    @Inject
+    lateinit var builtinRecipeCatalog: BuiltinRecipeCatalog
+
+    @Inject
+    lateinit var strategyCatalog: StrategyCatalog
+
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    private val advancedCapabilityCatalog = AdvancedCapabilityCatalog()
 
     // ── App-wide observable device/runtime state ──
     private val _isAppForegrounded = MutableStateFlow(true)
@@ -113,10 +126,14 @@ class ArtificerXApp :
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
         backupScheduler.scheduleAutoBackup()
         workspaceFileSystem.ensureReady()
+        RuntimeToolCatalog.init(this)
+        builtinRecipeCatalog.init(this)
+        strategyCatalog.init(this)
+        advancedCapabilityCatalog.registerDefaults()
         workspaceManifestService.refresh()
         workspaceMaintenanceScheduler.schedule()
         automationScheduler.scheduleDaily()
-        Log.i(TAG, "ARTIFICER-X process started. debug=${isDebugBuild()}")
+        Log.i(TAG, "ARTIFICER-X process started. debug=${isDebugBuild()} capabilities=${advancedCapabilityCatalog.all().size}")
     }
 
     /** Section: Maps/location services. osmdroid's tile servers
@@ -308,6 +325,15 @@ class ArtificerXApp :
         const val CHANNEL_PROVIDER_QUOTA = "provider_quota_channel"
         private const val BATTERY_LOW_THRESHOLD_PERCENT = 20
     }
+
+    /** Snapshot used by diagnostics and the hidden AI control plane. */
+    private fun expansionCapabilityCount(): Int =
+        com.waheed.artificerx.core.expansion.ExpansionRuntime.all().size
+
+    /** Returns only failed capability checks so boot diagnostics can distinguish absence from failure. */
+    private fun expansionCapabilityFailures(): List<com.waheed.artificerx.core.expansion.CapabilityCheck> =
+        com.waheed.artificerx.core.expansion.ExpansionRuntime.failures()
+
 }
 
 /**

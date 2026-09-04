@@ -17,13 +17,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import org.nehuatl.llamacpp.LlamaHelper
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
-import kotlin.time.Duration.Companion.seconds
 
 /** Local-inference equivalent of ConnectionTestResult/ChatCompletionResponse
  *  for a completed (non-streaming-consumer) generation — the streaming
@@ -103,7 +101,7 @@ class LocalInferenceEngine
          *  loading a second model reuses/replaces the native context, and
          *  attempting to hold two simultaneously is exactly the OOM risk
          *  this singleton exists to prevent). Suspends until the load
-         *  either completes or fails/times out, so callers (the settings
+         *  either completes or fails, so callers (the settings
          *  screen's "Load & Test" button, or AgentOrchestrator on first
          *  use of a local provider this session) get a single clear
          *  yes/no rather than having to observe [loadState] themselves. */
@@ -167,46 +165,44 @@ class LocalInferenceEngine
             }
 
             val builder = StringBuilder()
-            return withTimeoutOrNull(GENERATION_TIMEOUT_SECONDS.seconds) {
-                suspendCancellableCoroutine<LocalGenerationResult> { continuation ->
-                    val collectorJob =
-                        engineScope.launch {
-                            llmEventFlow.collect { event ->
-                                when (event) {
-                                    is LlamaHelper.LLMEvent.Ongoing -> builder.append(event.word)
-                                    is LlamaHelper.LLMEvent.Done -> {
-                                        if (continuation.isActive) {
-                                            continuation.resume(
-                                                LocalGenerationResult.Success(
-                                                    fullText = builder.toString(),
-                                                    tokenCount = event.tokenCount,
-                                                    durationMillis = event.duration,
-                                                ),
-                                            )
-                                        }
+            return suspendCancellableCoroutine { continuation ->
+                val collectorJob =
+                    engineScope.launch {
+                        llmEventFlow.collect { event ->
+                            when (event) {
+                                is LlamaHelper.LLMEvent.Ongoing -> builder.append(event.word)
+                                is LlamaHelper.LLMEvent.Done -> {
+                                    if (continuation.isActive) {
+                                        continuation.resume(
+                                            LocalGenerationResult.Success(
+                                                fullText = builder.toString(),
+                                                tokenCount = event.tokenCount,
+                                                durationMillis = event.duration,
+                                            ),
+                                        )
                                     }
-                                    is LlamaHelper.LLMEvent.Error -> {
-                                        if (continuation.isActive) {
-                                            continuation.resume(LocalGenerationResult.Failure(event.message))
-                                        }
-                                    }
-                                    else -> Unit
                                 }
+                                is LlamaHelper.LLMEvent.Error -> {
+                                    if (continuation.isActive) {
+                                        continuation.resume(LocalGenerationResult.Failure(event.message))
+                                    }
+                                }
+                                else -> Unit
                             }
                         }
-                    continuation.invokeOnCancellation { collectorJob.cancel() }
-                    runCatching {
-                        llamaHelper.predict(prompt, imageUri)
-                    }.onFailure { error ->
-                        collectorJob.cancel()
-                        if (continuation.isActive) {
-                            continuation.resume(LocalGenerationResult.Failure(error.message ?: "Generation failed to start."))
-                        }
+                    }
+                continuation.invokeOnCancellation {
+                    collectorJob.cancel()
+                    runCatching { llamaHelper.abort() }
+                }
+                runCatching {
+                    llamaHelper.predict(prompt, imageUri)
+                }.onFailure { error ->
+                    collectorJob.cancel()
+                    if (continuation.isActive) {
+                        continuation.resume(LocalGenerationResult.Failure(error.message ?: "Generation failed to start."))
                     }
                 }
-            } ?: run {
-                llamaHelper.abort()
-                LocalGenerationResult.Aborted
             }
         }
 
@@ -273,8 +269,9 @@ class LocalInferenceEngine
         private companion object {
             const val TAG = "LocalInferenceEngine"
             const val LLM_EVENT_BUFFER_CAPACITY = 64
-            const val MODEL_LOAD_TIMEOUT_SECONDS = 180L
-            const val GENERATION_TIMEOUT_SECONDS = 120L
+            /** No wall-clock generation ceiling; cancellation/user stop is the boundary. */
+            const val MODEL_LOAD_TIMEOUT_SECONDS = Long.MAX_VALUE
+            const val GENERATION_TIMEOUT_SECONDS = Long.MAX_VALUE
             const val OOM_FREE_HEAP_RATIO_THRESHOLD = 0.08
         }
     }

@@ -100,6 +100,7 @@ sealed class ParsedToolCall {
     ) : ParsedToolCall()
 
     object InspectCanvas : ParsedToolCall()
+    object InspectAndroidToolchain : ParsedToolCall()
 
     data class PickColor(
         val x: Float,
@@ -160,6 +161,8 @@ sealed class ParsedToolCall {
         val layerName: String,
         val opacity: Float?,
     ) : ParsedToolCall()
+
+    data class ComposeScene(val request: String, val quality: Int = 3) : ParsedToolCall()
 
     // Section: Web search/fetch tools
     data class WebFetch(
@@ -276,6 +279,15 @@ sealed class ParsedToolCall {
     data class Remember(val key: String, val value: String, val namespace: String) : ParsedToolCall()
     data class Recall(val query: String, val namespace: String) : ParsedToolCall()
     data class Dynamic(val name: String, val argsJson: String) : ParsedToolCall()
+    data class InvokeBuiltinRecipe(val recipeId: String, val argsJson: String) : ParsedToolCall()
+    data class SearchBuiltinRecipes(val query: String, val limit: Int) : ParsedToolCall()
+    data class InstallRuntimeTool(
+        val name: String,
+        val description: String,
+        val operation: String,
+        val inputSchemaJson: String,
+        val configJson: String,
+    ) : ParsedToolCall()
     data class ListArtifacts(val query: String?) : ParsedToolCall()
     data class SearchWorkspace(val query: String) : ParsedToolCall()
     data class ArtifactInfo(val artifactId: String) : ParsedToolCall()
@@ -285,5 +297,20 @@ sealed class ParsedToolCall {
 
     data class Unknown(
         val toolName: String,
+    ) : ParsedToolCall()
+
+    /** The tool name is real (exists in ToolRegistry) but the arguments
+     *  the LLM sent fail validation against that tool's own JSON schema
+     *  — a required field is missing/blank, or a "*_hex" field isn't a
+     *  real hex color. Previously every one of these cases was silently
+     *  papered over with a hardcoded default (missing layer_id -> "",
+     *  missing name -> "New Layer", bad color -> ignored), so the model
+     *  never found out it made a mistake and the mistake propagated
+     *  into app state instead. ToolCallValidator produces [reasons];
+     *  ToolExecutor turns this straight into a Failure so the model
+     *  sees exactly what to fix and can retry correctly. */
+    data class Invalid(
+        val toolName: String,
+        val reasons: List<String>,
     ) : ParsedToolCall()
 }

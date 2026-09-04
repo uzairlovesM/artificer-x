@@ -1,6 +1,8 @@
 package com.waheed.artificerx.core.agent
 
 import com.waheed.artificerx.core.network.FunctionDefinitionDto
+import com.waheed.artificerx.core.runtime.RuntimeToolCatalog
+import com.waheed.artificerx.core.builtin.BuiltinRecipeTools
 import com.waheed.artificerx.core.network.ToolDefinitionDto
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -19,7 +21,7 @@ import kotlinx.serialization.json.put
  * back.
  */
 object ToolRegistry {
-    val ALL_TOOLS: List<ToolDefinitionDto> =
+    private val BUILTIN_TOOLS: List<ToolDefinitionDto> =
         listOf(
             createLayerTool(),
             deleteLayerTool(),
@@ -40,6 +42,7 @@ object ToolRegistry {
             flipLayerTool(),
             cropCanvasTool(),
             inspectCanvasTool(),
+            inspectAndroidToolchain(),
             pickColorTool(),
             applyFilterTool(),
             addTextTool(),
@@ -48,6 +51,7 @@ object ToolRegistry {
             applyPatternTool(),
             drawCurveTool(),
             importImageLayerTool(),
+            composeSceneTool(),
             webFetchTool(),
             webSearchTool(),
             createPrimitiveTool(),
@@ -74,22 +78,38 @@ object ToolRegistry {
             checksumArtifactTool(),
             workspaceStatusTool(),
             exportWorkspaceBundleTool(),
+            installRuntimeTool(),
         )
-    // NOTE (reliability audit): a 3,000-entry auto-generated
-    // "DynamicToolCatalog" (20 families x 150 numbered placeholder
-    // tools like "ai_provider_tool_0001") used to be appended here.
-    // Every one of those schemas was sent to the LLM on every single
-    // turn (~450k+ tokens of pure overhead), yet DynamicCapabilityRouter
-    // resolved almost all of them to a generic "acknowledged, no action
-    // taken" fake-success message — the model would believe an action
-    // succeeded when nothing happened. The handful of families that DID
-    // have real behavior (file read/write/list, web search/fetch, image
-    // generation, memory, terminal) already have proper first-class
-    // tools below (read_workspace_file, write_workspace_file, web_fetch,
-    // web_search, generate_image, remember/recall, run_terminal_command)
-    // with real validation and honest error messages. The catalog added
-    // zero net capability while actively harming reliability and cost,
-    // so it has been removed rather than patched.
+
+    val ALL_TOOLS: List<ToolDefinitionDto>
+        get() = BUILTIN_TOOLS + BuiltinRecipeTools.definitions() + RuntimeToolCatalog.definitions()
+    // NOTE (reliability audit): a Previous synthetic numbered tool schemas were removed. Runtime extensions now use persisted, audited `runtime_*` definitions whose operations map to real executors.
+
+    private fun installRuntimeTool() =
+        ToolDefinitionDto(
+            function =
+                FunctionDefinitionDto(
+                    name = RuntimeToolCatalog.INSTALL_TOOL,
+                    description = "Install or replace a persistent runtime tool without rebuilding the APK. Only audited declarative operations are allowed.",
+                    parameters = buildJsonObject {
+                        put("type", "object")
+                        putJsonObject("properties") {
+                            putJsonObject("name") { put("type", "string"); put("description", "Name beginning with runtime_") }
+                            putJsonObject("description") { put("type", "string") }
+                            putJsonObject("operation") {
+                                put("type", "string")
+                                putJsonArray("enum") { RuntimeToolCatalog.SUPPORTED_OPERATIONS.forEach { add(JsonPrimitive(it)) } }
+                            }
+                            putJsonObject("input_schema_json") { put("type", "string") }
+                            putJsonObject("config_json") { put("type", "string") }
+                        }
+                        putJsonArray("required") {
+                            add(JsonPrimitive("name")); add(JsonPrimitive("description")); add(JsonPrimitive("operation"));
+                            add(JsonPrimitive("input_schema_json")); add(JsonPrimitive("config_json"))
+                        }
+                    },
+                ),
+        )
 
     private fun createLayerTool() =
         ToolDefinitionDto(
@@ -843,6 +863,31 @@ object ToolRegistry {
                         },
                 ),
         )
+
+    private fun composeSceneTool() =
+        ToolDefinitionDto(
+            function =
+                FunctionDefinitionDto(
+                    name = "compose_scene",
+                    description = "Build a recognizable structured scene from a natural-language brief. Use for rooms, bedrooms, studios, classrooms, streets and other spatial compositions. It creates real multi-layer raster artwork with perspective, major objects, lighting and line art, then returns a composition report.",
+                    parameters = buildJsonObject {
+                        put("type", "object")
+                        putJsonObject("properties") {
+                            putJsonObject("request") { put("type", "string"); put("description", "Exact scene brief, including style, subject, camera, mood and important objects") }
+                            putJsonObject("quality") { put("type", "integer"); put("minimum", 1); put("maximum", 5) }
+                        }
+                        putJsonArray("required") { add(JsonPrimitive("request")) }
+                    },
+                ),
+        )
+
+    private fun inspectAndroidToolchain() = ToolDefinitionDto(
+        function = FunctionDefinitionDto(
+            name = "inspect_android_toolchain",
+            description = "Inspect the private Android build environment: SDK root, installed platforms, build-tools, NDKs, CMake, Java, Git and ADB availability. Use before coding/build tasks that depend on device capabilities.",
+            parameters = buildJsonObject { put("type", "object"); putJsonObject("properties") {}; putJsonArray("required") {} },
+        ),
+    )
 
     private fun webFetchTool() =
         ToolDefinitionDto(

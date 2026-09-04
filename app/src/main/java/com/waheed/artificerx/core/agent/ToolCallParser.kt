@@ -1,5 +1,7 @@
 package com.waheed.artificerx.core.agent
 
+import com.waheed.artificerx.core.runtime.RuntimeToolCatalog
+
 import com.waheed.artificerx.core.network.ToolCallDto
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -31,6 +33,11 @@ object ToolCallParser {
             runCatching {
                 json.parseToJsonElement(toolCall.function.arguments).jsonObject
             }.getOrNull() ?: JsonObject(emptyMap())
+
+        val validationErrors = ToolCallValidator.validate(toolCall.function.name, args)
+        if (validationErrors.isNotEmpty()) {
+            return ParsedToolCall.Invalid(toolCall.function.name, validationErrors)
+        }
 
         return when (toolCall.function.name) {
             "create_layer" ->
@@ -118,6 +125,7 @@ object ToolCallParser {
                     height = (args["height"]?.jsonPrimitive?.floatOrNull ?: 0f).toInt(),
                 )
             "inspect_canvas" -> ParsedToolCall.InspectCanvas
+            "inspect_android_toolchain" -> ParsedToolCall.InspectAndroidToolchain
             "pick_color" ->
                 ParsedToolCall.PickColor(
                     x = args["x"]?.jsonPrimitive?.floatOrNull ?: 0f,
@@ -178,6 +186,10 @@ object ToolCallParser {
                     layerName = args["layer_name"]?.jsonPrimitive?.contentOrNull ?: "Imported Image",
                     opacity = args["opacity"]?.jsonPrimitive?.floatOrNull,
                 )
+            "compose_scene" -> ParsedToolCall.ComposeScene(
+                request = args["request"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                quality = args["quality"]?.jsonPrimitive?.intOrNull ?: 3,
+            )
             "web_fetch" ->
                 ParsedToolCall.WebFetch(
                     url = args["url"]?.jsonPrimitive?.contentOrNull ?: "",
@@ -307,13 +319,23 @@ object ToolCallParser {
             "checksum_artifact" -> ParsedToolCall.ChecksumArtifact(args["artifact_id"]?.jsonPrimitive?.contentOrNull ?: "")
             "get_workspace_status" -> ParsedToolCall.WorkspaceStatus
             "export_workspace_bundle" -> ParsedToolCall.ExportWorkspaceBundle
-            // The old dynamic "_tool_" catalog (3,000 auto-generated
-            // placeholder names) was removed as dead/fake capability —
-            // see ToolRegistry's note. Any unrecognized tool name now
-            // consistently reports as Unknown so the LLM gets a real,
-            // actionable error (with the real tool list) instead of a
-            // silent fake success from the old router.
-            else -> ParsedToolCall.Unknown(toolCall.function.name)
+            "invoke_builtin_recipe" -> ParsedToolCall.InvokeBuiltinRecipe(
+                recipeId = args["recipe_id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                argsJson = args["args_json"]?.jsonPrimitive?.contentOrNull ?: "{}",
+            )
+            "search_builtin_recipes" -> ParsedToolCall.SearchBuiltinRecipes(
+                query = args["query"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                limit = args["limit"]?.jsonPrimitive?.intOrNull ?: 12,
+            )
+            "install_runtime_tool" -> ParsedToolCall.InstallRuntimeTool(
+                name = args["name"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                description = args["description"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                operation = args["operation"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                inputSchemaJson = args["input_schema_json"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                configJson = args["config_json"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+            )
+            // Runtime tools are resolved from the persistent audited runtime catalog; unknown names remain hard failures.
+            else -> if (RuntimeToolCatalog.contains(toolCall.function.name)) ParsedToolCall.Dynamic(toolCall.function.name, toolCall.function.arguments) else ParsedToolCall.Unknown(toolCall.function.name)
         }
     }
 }

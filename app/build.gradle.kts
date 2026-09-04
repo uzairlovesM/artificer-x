@@ -69,17 +69,9 @@ kotlin {
 
 android {
     namespace = "com.waheed.artificerx"
-    // compileSdk 36 — required by androidx.core:core-ktx:1.18.0's AAR
-    // metadata (and by androidx.core:core, its transitive dependency),
-    // which enforces "compile against API 36+" regardless of what this
-    // project itself targets. AGP 8.7.2 caps out at compileSdk 35, which
-    // is why this was previously pinned to 35 with core-ktx *declared*
-    // at 1.15.0 — but a transitive dependency was already resolving
-    // core-ktx to 1.18.0 in practice, so the declared compileSdk and the
-    // actually-enforced minimum had drifted apart. Bumped together with
-    // the AGP version above (8.13.2, which supports up to API 36.1) so
-    // declared and enforced values match again.
+    // API 36 is the current project compile target; the app is personal-device-only.
     compileSdk = 36
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "com.waheed.artificerx"
@@ -90,20 +82,31 @@ android {
         // permission APIs the new screens below will want, without any
         // backward-compat shims.
         minSdk = 33
-        // targetSdk intentionally stays one step behind compileSdk here:
-        // compileSdk (compile against the newest APIs) and targetSdk
-        // (opt in to that API level's *runtime behavior changes*) are
-        // independent knobs — see AGP's own AAR-metadata note on this.
-        // Targeting 35 while compiling against 36 avoids opting into
-        // API-36 runtime behavior changes before they've been reviewed
-        // against this app's own code, while still satisfying the
-        // core-ktx 1.18.0 compileSdk requirement above.
-        targetSdk = 35
-        versionCode = 4
-        versionName = "0.6.0"
+        // The device itself is Android 13, but targetSdk is a build contract, not the
+        // device API level. This private build intentionally opts into API-36 behavior.
+        targetSdk = 36
+        versionCode = 7
+        versionName = "0.7.0-ultra"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+
+        // Native acceleration is intentionally narrowed to the device ABI family
+        // that matters for this personal Android-13 workstation. The C++ layer
+        // backs real raster analysis and future hot-path kernels; no dummy JNI
+        // library is packaged.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments += listOf(
+                    "-DCMAKE_BUILD_TYPE=Release",
+                    "-DARTIFICERX_NATIVE_ENABLE_SIMD=ON",
+                )
+            }
+        }
 
         buildConfigField("String", "GROQ_API_KEY", "\"${resolveSecret("GROQ_API_KEY") ?: ""}\"")
         buildConfigField("String", "OPENROUTER_API_KEY", "\"${resolveSecret("OPENROUTER_API_KEY") ?: ""}\"")
@@ -117,6 +120,13 @@ android {
         ksp {
             arg("room.schemaLocation", "$projectDir/schemas")
             arg("room.incremental", "true")
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.31.6"
         }
     }
 
@@ -237,7 +247,7 @@ android {
         // versions by hand in libs.versions.toml (reviewed via the
         // `versions` plugin's dependencyUpdatesReport task) rather than
         // taking lint's "always use latest" suggestion automatically.
-        // OldTargetApi: intentionally not on it — targetSdk tracks the
+        // OldTargetApi: intentionally not suppressed — targetSdk tracks the
         // current stable Android release deliberately, one lint cycle
         // behind the newest preview/beta API level lint sometimes
         // flags as "old" the moment a new one enters beta.

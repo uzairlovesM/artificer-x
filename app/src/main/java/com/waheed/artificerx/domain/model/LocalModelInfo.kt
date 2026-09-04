@@ -113,7 +113,8 @@ data class LocalModelInfo(
     }
 
     companion object {
-        const val DEFAULT_CONTEXT_LENGTH = 4096
+        /** Best-effort high context default; the native runtime/model remains authoritative. */
+        const val DEFAULT_CONTEXT_LENGTH = 32768
         const val DEFAULT_THREAD_COUNT = 4
         const val DEFAULT_TEMPERATURE = 0.7f
         const val DEFAULT_TOP_K = 40

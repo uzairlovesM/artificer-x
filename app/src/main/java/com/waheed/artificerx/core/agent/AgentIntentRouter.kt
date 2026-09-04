@@ -15,7 +15,7 @@ object AgentIntentRouter {
         val confidence = (55 + winner.second * 10).coerceAtMost(97)
         return when (winner.first) {
             Kind.ENGINEERING -> Route(winner.first, confidence, listOf("create_file", "run_terminal_command", "run_terminal_batch", "finish_turn"), "Build, inspect, test, then package")
-            Kind.VISUAL -> Route(winner.first, confidence, listOf("inspect_canvas", "draw_path", "generate_image", "finish_turn"), "Create, inspect and iteratively refine visual output")
+            Kind.VISUAL -> Route(winner.first, confidence, listOf("inspect_canvas", "draw_path", "create_layer", "apply_filter", "finish_turn"), "Create, inspect and iteratively refine visual output")
             Kind.RESEARCH -> Route(winner.first, confidence, listOf("web_search", "web_fetch", "create_file", "finish_turn"), "Research first, then produce a structured artifact")
             Kind.WORKSPACE -> Route(winner.first, confidence, listOf("create_file", "create_zip", "remember", "finish_turn"), "Materialize requested files and package them")
             Kind.GENERAL -> Route(Kind.GENERAL, confidence, listOf("finish_turn"), "General reasoning route")

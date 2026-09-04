@@ -42,7 +42,7 @@
         android:theme="@style/Theme.ArtificerX"
         android:hardwareAccelerated="true"
         android:largeHeap="true"
-        tools:targetApi="35">
+        tools:targetApi="36">
 
         <!-- ArtificerXApp implements androidx.work.Configuration.Provider
              for on-demand WorkManager initialization (wiring HiltWorkerFactory

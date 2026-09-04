@@ -74,13 +74,18 @@ class ImageExporter
                 resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
                     ?: error("MediaStore insert failed")
 
-            resolver.openOutputStream(uri)?.use { stream: OutputStream ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-            } ?: error("Could not open output stream")
-
-            contentValues.clear()
-            contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
-            resolver.update(uri, contentValues, null, null)
-            return uri
+            return try {
+                val compressed = resolver.openOutputStream(uri)?.use { stream: OutputStream ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                } ?: false
+                check(compressed) { "Bitmap PNG compression failed" }
+                contentValues.clear()
+                contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+                check(resolver.update(uri, contentValues, null, null) == 1) { "MediaStore publish update failed" }
+                uri
+            } catch (error: Throwable) {
+                resolver.delete(uri, null, null)
+                throw error
+            }
         }
     }

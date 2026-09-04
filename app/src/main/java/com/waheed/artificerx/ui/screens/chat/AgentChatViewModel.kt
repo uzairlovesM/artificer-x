@@ -3,6 +3,8 @@ package com.waheed.artificerx.ui.screens.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.waheed.artificerx.core.agent.AgentEvent
+import com.waheed.artificerx.core.chat.ChatProfile
+import com.waheed.artificerx.core.chat.ChatProfileStore
 import com.waheed.artificerx.core.agent.AgentOrchestrator
 import com.waheed.artificerx.core.export.ImageExporter
 import com.waheed.artificerx.core.network.ChatMessageDto
@@ -47,6 +49,8 @@ data class AgentChatUiState(
     // Section: Local Model provider — latest tok/s sample from
     // AgentEvent.LocalModelSpeed, shown as a small live throughput indicator.
     val localModelTokensPerSecond: Double? = null,
+    val chatProfiles: List<ChatProfile> = emptyList(),
+    val activeProfileId: String? = null,
 )
 
 /**
@@ -70,8 +74,13 @@ class AgentChatViewModel
         private val workspaceRepository: com.waheed.artificerx.data.repository.ChatWorkspaceRepository,
         private val chatSessionDataStore: ChatSessionDataStore,
         private val responseArtifactMaterializer: com.waheed.artificerx.core.agent.AIResponseArtifactMaterializer,
+        private val chatProfileStore: ChatProfileStore,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(AgentChatUiState())
+        init {
+            viewModelScope.launch { chatProfileStore.profiles.collect { profiles -> _uiState.update { it.copy(chatProfiles = profiles) } } }
+            viewModelScope.launch { chatProfileStore.activeProfileId.collect { id -> _uiState.update { it.copy(activeProfileId = id) } } }
+        }
         val uiState: StateFlow<AgentChatUiState> = _uiState.asStateFlow()
 
         private var linkedStudioViewModel: StudioViewModel? = null
@@ -122,7 +131,8 @@ class AgentChatViewModel
                 val messages = workspaceRepository.loadMessages(threadId)
                 val artifactCount = workspaceRepository.observeArtifacts(threadId).first().size
                 chatSessionDataStore.setActiveThreadId(threadId)
-                _uiState.update { it.copy(activeThreadId = threadId, messages = messages, artifactCount = artifactCount, inputText = "") }
+                val profileId=chatProfileStore.getProfileForThread(threadId)
+                _uiState.update { it.copy(activeThreadId = threadId, messages = messages, artifactCount = artifactCount, inputText = "", activeProfileId = profileId) }
             }
         }
 
@@ -130,7 +140,8 @@ class AgentChatViewModel
             viewModelScope.launch {
                 val id = workspaceRepository.createThread()
                 chatSessionDataStore.setActiveThreadId(id)
-                _uiState.update { it.copy(activeThreadId = id, messages = emptyList(), inputText = "", artifactCount = 0) }
+                val profileId=chatProfileStore.getProfileForThread(id)
+                _uiState.update { it.copy(activeThreadId = id, messages = emptyList(), inputText = "", artifactCount = 0, activeProfileId = profileId) }
             }
         }
 
@@ -156,6 +167,24 @@ class AgentChatViewModel
             linkedSculptViewModel = sculptViewModel
             linkedStudioViewModel = null
         }
+
+        fun setActiveProfile(id:String) { viewModelScope.launch {
+            val thread=_uiState.value.activeThreadId
+            if(thread.isNotBlank()) chatProfileStore.setProfileForThread(thread,id) else chatProfileStore.setActive(id)
+            _uiState.update { it.copy(activeProfileId=id) }
+        } }
+
+        fun saveProfile(profile:ChatProfile) { viewModelScope.launch {
+            val current=_uiState.value.chatProfiles.toMutableList()
+            val index=current.indexOfFirst { it.id==profile.id }
+            if(index>=0) current[index]=profile else current.add(profile)
+            chatProfileStore.saveProfiles(current)
+        } }
+
+        fun deleteProfile(id:String) { viewModelScope.launch {
+            val remaining=_uiState.value.chatProfiles.filterNot { it.id==id }
+            if(remaining.isNotEmpty()) chatProfileStore.saveProfiles(remaining)
+        } }
 
         fun onInputChanged(text: String) {
             _uiState.update { it.copy(inputText = text) }
@@ -247,6 +276,7 @@ class AgentChatViewModel
                                 snapshotProvider = snapshotProvider,
                                 projectId = studioViewModel?.state?.value?.projectId,
                                 is3DMode = studioViewModel == null && sculptViewModel != null,
+                                chatProfile = state.chatProfiles.firstOrNull { it.id == state.activeProfileId },
                             ).collect { event ->
                                 applyAgentEvent(event, agentMessageId, studioViewModel, sculptViewModel)
                             }

@@ -39,7 +39,8 @@ fun SystemObservatoryScreen(onBack: () -> Unit) {
     val dirs=remember { listOf("works" to fs.roots.works, "cache" to fs.roots.cache, "system" to fs.roots.system, "plugins" to fs.roots.plugins, "models" to fs.roots.models, "exports" to fs.roots.exports, "imports" to fs.roots.imports, "logs" to fs.roots.logs, "temp" to fs.roots.temp, "backups" to fs.roots.backups, "autosave" to fs.roots.autosave, "projects" to fs.roots.projects) }
     LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement=Arrangement.spacedBy(10.dp)) {
         item { WorkspaceTopBar("System Observatory", "Runtime, workspace and capability telemetry", onBack) }
-        item { MetricCard("Tools", ToolRegistry.ALL_TOOLS.size.toString(), "real, concrete agent tool definitions") }
+        item { MetricCard("Tools", ToolRegistry.ALL_TOOLS.size.toString(), "real agent capabilities") }
+        item { MetricCard("Native raster", runCatching { System.loadLibrary("artificerx_native"); "JNI loaded" }.getOrDefault("Unavailable"), "C++ analysis hot path") }
         item { MetricCard("Plugins", BuiltinPluginCatalog.plugins.size.toString(), "built-in plugin descriptors") }
         item { MetricCard("Available RAM", "${(memory.availMem/1048576)} MiB", "system reported") }
         item { MetricCard("Workspace", "${fs.usageBytes()/1024} KiB", fs.roots.root.absolutePath) }

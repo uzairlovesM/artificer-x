@@ -125,7 +125,7 @@ fun StudioScreen(
                 heightPx = state.canvasHeightPx,
                 toolState = state.toolState,
                 selection = state.selection,
-                onStrokeComplete = viewModel::drawManualStroke,
+                onStrokeComplete = { points, pressureWeights -> viewModel.drawManualStroke(points, pressureWeights) },
                 onShapeComplete = viewModel::drawManualShape,
                 onFillTap = viewModel::fillManualTap,
                 onColorPickTap = viewModel::pickManualColor,
@@ -292,7 +292,7 @@ private fun CanvasRenderSurface(
     heightPx: Int,
     toolState: com.waheed.artificerx.domain.model.DrawToolState,
     selection: com.waheed.artificerx.domain.model.SelectionRect?,
-    onStrokeComplete: (points: List<Float>) -> Unit,
+    onStrokeComplete: (points: List<Float>, pressureWeights: List<Float>?) -> Unit,
     onShapeComplete: (startX: Float, startY: Float, endX: Float, endY: Float) -> Unit,
     onFillTap: (x: Float, y: Float) -> Unit,
     onColorPickTap: (x: Float, y: Float) -> Unit,
@@ -367,9 +367,9 @@ private fun CanvasRenderSurface(
                                 toolState = toolState,
                                 canvasSizePx = androidx.compose.ui.unit.IntSize(widthPx, heightPx),
                                 onStrokeInProgress = { points -> livePoints = mapPoints(points) },
-                                onStrokeComplete = { points ->
+                                onStrokeComplete = { points, pressureWeights ->
                                     livePoints = null
-                                    onStrokeComplete(mapPoints(points))
+                                    onStrokeComplete(mapPoints(points), pressureWeights)
                                 },
                                 onShapeInProgress = { sx, sy, ex, ey ->
                                     liveShapeBounds =

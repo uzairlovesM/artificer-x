@@ -167,12 +167,15 @@ class StudioViewModel
             )
         }
 
-        fun addLayer() {
+        fun addLayer() { addNamedLayer(null) }
+
+        /** Named layer entry point used by higher-level creative compilers. */
+        fun addNamedLayer(name: String?) {
             _state.update { current ->
                 val newLayer =
                     CanvasLayer(
                         id = UUID.randomUUID().toString(),
-                        name = "Layer ${current.layers.size + 1}",
+                        name = name?.trim().orEmpty().ifBlank { "Layer ${current.layers.size + 1}" },
                         orderIndex = current.layers.size,
                     )
                 bitmapStore.ensureLayer(newLayer.id, current.canvasWidthPx, current.canvasHeightPx)
@@ -331,7 +334,7 @@ class StudioViewModel
          *     below. This is what answers "finger touch smoothing" from
          *     the brush-engine questionnaire without needing real stylus
          *     pressure hardware. */
-        fun drawManualStroke(points: List<Float>) {
+        fun drawManualStroke(points: List<Float>, pressureWeights: List<Float>? = null) {
             val current = _state.value
             val activeLayerId = current.activeLayerId ?: return
             if (points.size < 4 || points.size % 2 != 0) return
@@ -354,7 +357,8 @@ class StudioViewModel
                 return
             }
 
-            val weights = if (current.toolState.pressureSimulationEnabled) simulatePressureWeights(points) else null
+            val weights = pressureWeights?.takeIf { it.isNotEmpty() }
+                ?: if (current.toolState.pressureSimulationEnabled) simulatePressureWeights(points) else null
             variants.forEach { variant ->
                 if (activeLayer?.alphaLock == true) {
                     compositor.drawPathAlphaLocked(

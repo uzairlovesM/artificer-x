@@ -49,12 +49,14 @@ registry = read("app/src/main/java/com/waheed/artificerx/core/agent/ToolRegistry
 tool_names = re.findall(r'private fun (\w+)Tool\(\)', registry) + re.findall(r'name\s*=\s*"([a-zA-Z0-9_]+)"', registry)
 # Only concrete registry function/schema names are counted from quoted names.
 quoted_tools = set(re.findall(r'name\s*=\s*"([a-zA-Z0-9_]+)"', registry))
-dynamic = read("app/src/main/java/com/waheed/artificerx/core/agent/DynamicToolCatalog.kt")
-repeat = re.search(r'repeat\((\d+)\)', dynamic)
-expected_dynamic = int(repeat.group(1)) * 20 if repeat else 0
-runtime_tool_lower_bound = len(quoted_tools) + expected_dynamic
-if runtime_tool_lower_bound < 1000:
-    fail(f"tool surface unexpectedly small: lower bound={runtime_tool_lower_bound}")
+runtime_catalog = read("app/src/main/java/com/waheed/artificerx/core/runtime/RuntimeToolCatalog.kt")
+if "SUPPORTED_OPERATIONS" not in runtime_catalog or "fun install" not in runtime_catalog:
+    fail("runtime extension catalog is missing persistent install support")
+if "runtime_" not in runtime_catalog:
+    fail("runtime extension namespace contract is missing")
+runtime_tool_lower_bound = len(quoted_tools)
+if runtime_tool_lower_bound < 50:
+    fail(f"concrete tool surface unexpectedly small: {runtime_tool_lower_bound}")
 if len(quoted_tools) != len(set(quoted_tools)):
     fail("duplicate concrete tool schema names detected")
 
@@ -96,7 +98,8 @@ summary = {
     "errors": errors,
     "warnings": warnings,
     "literalPluginDescriptors": literal_plugin_count,
-    "dynamicToolLowerBound": expected_dynamic,
+    "dynamicToolLowerBound": runtime_tool_lower_bound,
+    "runtimeExtensionCatalog": True,
     "concreteToolSchemaNames": len(quoted_tools),
     "runtimeToolLowerBound": runtime_tool_lower_bound,
 }

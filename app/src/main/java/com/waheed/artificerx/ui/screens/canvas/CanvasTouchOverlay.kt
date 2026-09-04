@@ -45,7 +45,7 @@ fun Modifier.canvasTouchInput(
     toolState: DrawToolState,
     canvasSizePx: IntSize,
     onStrokeInProgress: (points: List<Float>) -> Unit = {},
-    onStrokeComplete: (points: List<Float>) -> Unit,
+    onStrokeComplete: (points: List<Float>, pressureWeights: List<Float>?) -> Unit,
     onShapeInProgress: (startX: Float, startY: Float, endX: Float, endY: Float) -> Unit = { _, _, _, _ -> },
     onShapeComplete: (startX: Float, startY: Float, endX: Float, endY: Float) -> Unit,
     onFillTap: (x: Float, y: Float) -> Unit,
@@ -72,6 +72,8 @@ fun Modifier.canvasTouchInput(
                 awaitEachGesture {
                     val down = awaitFirstDown(pass = PointerEventPass.Main)
                     val points = mutableListOf(down.position.x, down.position.y)
+                    val pressureWeights = mutableListOf<Float>()
+                    var lastPressure = down.pressure.coerceIn(0.15f, 1.6f)
                     down.consumeAllChanges()
                     onStrokeInProgress(points.toList())
 
@@ -79,14 +81,16 @@ fun Modifier.canvasTouchInput(
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull() ?: break
                         if (change.pressed) {
+                            pressureWeights += ((lastPressure + change.pressure) * 0.5f).coerceIn(0.15f, 1.6f)
                             points.add(change.position.x)
                             points.add(change.position.y)
+                            lastPressure = change.pressure.coerceIn(0.15f, 1.6f)
                             onStrokeInProgress(points.toList())
                         }
                         change.consumeAllChanges()
                     } while (event.changes.any { it.pressed })
 
-                    if (points.size >= 4) onStrokeComplete(points)
+                    if (points.size >= 4) onStrokeComplete(points, pressureWeights.take((points.size / 2 - 1).coerceAtLeast(0)))
                 }
             }
 

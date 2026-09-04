@@ -3,10 +3,10 @@
 - Application version: 0.5.0 (versionCode 3)
 - Kotlin/KTS source files: 152
 - Unit test files: 16
-- Dynamic capability tools: 3000+
-- Concrete tool definitions: 49
-- Runtime tool lower bound: 3049
-- Expanded plugin descriptors: 1060
+- Concrete built-in tool definitions: 53
+- Persistent runtime extension tools: declarative, user-installed, audited operations
+- Runtime tool namespace: runtime_*
+- Expanded plugin descriptors: catalog-backed
 - Navigation constants: 63
 
 ## Gates
@@ -24,4 +24,4 @@
 
 Android Gradle compilation was attempted, but this sandbox cannot resolve `services.gradle.org` to obtain the Gradle 8.13 distribution (`UnknownHostException`). The project therefore was not falsely marked as compiled in this environment.
 
-- Plugin math: 240 literal descriptors + 41 contract families x 20 categories = 1,060 runtime descriptors.
+- Previous synthetic tool/plugin count claims were removed because generated descriptors do not represent real executable capability.

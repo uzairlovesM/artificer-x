@@ -19,15 +19,15 @@ This pass applies a feature-consistency rebuild rather than a visual-only patch.
 ## Inventory
 
 - Built-in plugin descriptors: 240
-- Dynamic catalog tools: 1,020
-- Concrete core tool definitions: 43
-- Total tool definitions exposed by `ToolRegistry.ALL_TOOLS`: 1,063
+- Concrete core tool definitions: 53
+- Persistent runtime extensions: loaded from app-private `runtime-tools/` manifests
+- Total tool definitions exposed by `ToolRegistry.ALL_TOOLS`: built-ins + installed runtime tools
 - Expected feature audit contracts: 6
 
 ## Logic fixes in this pass
 
 1. Repaired the malformed `ToolRegistry.kt` helper section.
-2. Removed dead placeholder screens from the navigation graph.
+2. Removed fake/no-op dynamic capability routing from the agent tool surface.
 3. Added feature-aware capability/audit contracts to detect missing families.
 4. Added real searchable tool inventory UI.
 5. Added a real artifact browser for generated files/ZIPs with share/delete actions.

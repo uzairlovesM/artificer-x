@@ -1,6 +1,7 @@
 package com.waheed.artificerx.core.agent
 
 import com.waheed.artificerx.core.network.ChatCompletionRequest
+import com.waheed.artificerx.core.chat.ChatProfile
 import com.waheed.artificerx.core.network.ChatCompletionResponse
 import com.waheed.artificerx.core.network.ChatCompletionStreamChunkDto
 import com.waheed.artificerx.core.network.ChatMessageDto
@@ -108,6 +109,7 @@ class AgentOrchestrator
             Json {
                 ignoreUnknownKeys = true
                 encodeDefaults = true
+                explicitNulls = false
             }
 
         fun handleUserMessage(
@@ -118,10 +120,17 @@ class AgentOrchestrator
             snapshotProvider: SnapshotProvider,
             projectId: String? = null,
             is3DMode: Boolean = false,
+            chatProfile: ChatProfile? = null,
         ): Flow<AgentEvent> =
             flow {
                 val needs = ModelRoutingPolicy.RequestNeeds(vision = attachedImageBase64 != null, toolCalling = true, offlineOnly = !deviceStateApp.isNetworkAvailable.value)
-                val providers = collectUsableProviders(needs)
+                var providers = collectUsableProviders(needs)
+                if (chatProfile?.providerId != null) {
+                    providers = providers.sortedByDescending { it.id == chatProfile.providerId }
+                }
+                if (chatProfile?.modelId != null) {
+                    providers = providers.map { it.copy(defaultModelId = chatProfile.modelId) }
+                }
                 if (providers.isEmpty()) {
                     emit(AgentEvent.Error("No enabled AI provider is configured.", isFatal = true))
                     return@flow
@@ -167,7 +176,7 @@ class AgentOrchestrator
                 val agentSettings = collectAgentSettings()
                 val executionBudget = AgentExecutionPolicy.budget(userText, agentSettings.effectiveMaxIterations, deviceStateApp.isNetworkAvailable.value)
                 val effectiveMaxIterations = executionBudget.maxIterations
-                val effectiveTemperature = agentSettings.effectiveTemperature
+                val effectiveTemperature = chatProfile?.temperature ?: agentSettings.effectiveTemperature
                 val artifactIntent = ArtifactIntentDetector.detect(userText)
 
                 val selectedRole = agentPlanner.selectRole(userText, is3DMode)
@@ -178,7 +187,9 @@ class AgentOrchestrator
                     system = systemMessage,
                     history = conversationHistory,
                     user = userTurnMessage(userText, attachedImageBase64),
-                    maxCharacters = 140_000,
+                    // No application-side context truncation. Provider/model context remains
+                    // authoritative; the compiler retains as much conversation as supplied.
+                    maxCharacters = Int.MAX_VALUE,
                 )
                 val messages = compiledContext.messages.toMutableList()
 
@@ -245,10 +256,16 @@ class AgentOrchestrator
 
                     val toolCalls = assistantMessage.toolCalls
                     if (toolCalls.isNullOrEmpty()) {
-                        // Text was already streamed incrementally as it
-                        // arrived (see AgentTextChunk emissions above /
-                        // inside streamCloudProvider) — nothing left to
-                        // emit here, just close out the turn.
+                        if (LongOutputContinuationPlanner.shouldContinue(turnResult.finishReason)) {
+                            messages.add(
+                                ChatMessageDto(
+                                    role = "user",
+                                    contentText = LongOutputContinuationPlanner.prompt(assistantMessage.contentText ?: ""),
+                                ),
+                            )
+                            emit(AgentEvent.AgentTextChunk("\n\n[Continuing because the provider reached its output boundary…]\n\n"))
+                            continue
+                        }
                         finished = true
                         continue
                     }
@@ -257,8 +274,8 @@ class AgentOrchestrator
 
                     for (toolCall in toolCalls) {
                         totalToolCalls++
-                        if (totalToolCalls > executionBudget.maxToolCalls) {
-                            emit(AgentEvent.Error("Tool-call safety budget reached (${executionBudget.maxToolCalls}). Finish the turn with the work completed so far.", isFatal = true))
+                        if (totalToolCalls == Int.MAX_VALUE) {
+                            emit(AgentEvent.Error("Application tool-call counter exhausted. Start a new turn to continue.", isFatal = true))
                             return@flow
                         }
                         emit(
@@ -321,8 +338,7 @@ class AgentOrchestrator
                             is ToolExecutionResult.Failure -> {
                                 val repair = AgentRepairPlanner.classify(result.errorMessage)
                                 emit(AgentEvent.ToolCallFailed(toolCall.id, result.errorMessage))
-                                messages.add(toolResultMessage(toolCall, "ERROR: ${result.errorMessage}
-REPAIR GUIDANCE: ${repair.guidance}"))
+                                messages.add(toolResultMessage(toolCall, "ERROR: ${result.errorMessage}\nREPAIR GUIDANCE: ${repair.guidance}"))
                             }
                             is ToolExecutionResult.TurnFinished -> {
                                 emit(AgentEvent.ToolCallSucceeded(toolCall.id, "Turn finished"))
@@ -434,15 +450,30 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
                 You do not generate images directly. You create artwork and 3D
                 sculptures exclusively by calling the provided tools.
 
-                Artifact/workspace tools are real side-effecting operations: generate_image creates a PNG artifact through the configured image-capable provider; create_file writes a real local artifact; create_zip packages real files; read_workspace_file/list_workspace_directory/write_workspace_file/replace_workspace_text operate on the managed works workspace; remember and recall persist local memory; run_terminal_command and run_terminal_batch execute in the app-private sandbox. Never claim an artifact, image, ZIP, terminal result, or memory entry exists unless its tool returned success.
+                CRITICAL CREATIVE QUALITY RULE: For scene requests, never draw a
+                vague blob or a single arbitrary object. First infer the subject,
+                camera/view, composition, spatial relationships, perspective,
+                lighting, palette, material cues, focal hierarchy and intended
+                style. For recognizable scenes such as anime rooms, studios,
+                streets, bedrooms, kitchens or classrooms, use compose_scene to
+                construct a structured multi-layer scene with architectural
+                planes, perspective guides, major furniture silhouettes,
+                foreground/midground/background separation, line art and light.
+                Then inspect_canvas and repair weak geometry. A successful turn
+                should visibly resemble the requested subject, not merely satisfy
+                the existence of pixels.
+
+                Artifact/workspace tools are real side-effecting operations: canvas drawing creates real raster output and publishes it through the artifact pipeline; create_file writes a real local artifact; create_zip packages real files; read_workspace_file/list_workspace_directory/write_workspace_file/replace_workspace_text operate on the managed works workspace; remember and recall persist local memory; run_terminal_command and run_terminal_batch execute in the app-private sandbox. Never claim an artifact, image, ZIP, terminal result, or memory entry exists unless its tool returned success.
 
                 Prefer concrete named tools over dynamic capability aliases. Dynamic tools are routed only through supported local action adapters; unsupported dynamic actions must be reported as unsupported rather than invented.
+
+                Before coding/build/environment work, call inspect_android_toolchain so your implementation choices match the real private device/build environment.
 
                 2D canvas tools: create_layer, delete_layer, set_active_layer,
                 draw_path, draw_shape, apply_gradient, fill_region,
                 set_layer_property, pick_color, apply_filter, add_text,
                 create_mask, enable_symmetry, apply_pattern, draw_curve,
-                import_image_layer, inspect_canvas, set_selection,
+                import_image_layer, compose_scene, inspect_canvas, set_selection,
                 clear_selection, delete_selection_content, transform_layer,
                 web_search, web_fetch, resize_canvas, set_canvas_background,
                 set_brush_defaults.
@@ -770,7 +801,7 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
                     messages = messages,
                     tools = ToolSelectionPolicy.select(userText),
                     temperature = temperature,
-                    maxTokens = if (reasoningEffort != null) 4096 else 2048,
+                    maxTokens = null,
                     stream = true,
                     reasoningEffort = reasoningEffort,
                 )
@@ -905,7 +936,7 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
                     messages = messages,
                     tools = ToolSelectionPolicy.select(userText),
                     temperature = temperature,
-                    maxTokens = 2048,
+                    maxTokens = null,
                 )
 
             val bodyJson = json.encodeToString(ChatCompletionRequest.serializer(), requestBody)

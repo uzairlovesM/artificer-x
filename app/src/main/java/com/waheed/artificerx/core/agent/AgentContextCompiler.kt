@@ -11,7 +11,7 @@ object AgentContextCompiler {
         system: ChatMessageDto,
         history: List<ChatMessageDto>,
         user: ChatMessageDto,
-        maxCharacters: Int = 120_000,
+        maxCharacters: Int = Int.MAX_VALUE,
     ): Result {
         val ordered = history.filter { it.contentText().isNotBlank() }
         val selected = ArrayDeque<ChatMessageDto>()

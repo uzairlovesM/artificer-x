@@ -12,7 +12,9 @@ data class ChatCompletionRequest(
     val tools: List<ToolDefinitionDto>? = null,
     @SerialName("tool_choice") val toolChoice: String? = "auto",
     val temperature: Double = 0.7,
-    @SerialName("max_tokens") val maxTokens: Int = 2048,
+    /** Null means: do not send an artificial application-side output ceiling.
+     * The provider/model remains the ultimate authority for its own limit. */
+    @SerialName("max_tokens") val maxTokens: Int? = null,
     val stream: Boolean = false,
     // v0.4.30 Deep Studio mode: OpenAI-compatible reasoning-effort hint
     // ("low"/"medium"/"high"), forwarded only when the active

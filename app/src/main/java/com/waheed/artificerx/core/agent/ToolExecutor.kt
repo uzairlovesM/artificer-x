@@ -1,11 +1,18 @@
 package com.waheed.artificerx.core.agent
 
+import com.waheed.artificerx.core.runtime.RuntimeToolCatalog
+import com.waheed.artificerx.core.builtin.BuiltinRecipeCatalog
+import com.waheed.artificerx.core.builtin.BuiltinRecipeExecutor
+import com.waheed.artificerx.core.builtin.BuiltinRecipeTools
+import com.waheed.artificerx.core.runtime.RuntimeToolExecutor
 import com.waheed.artificerx.core.render.CanvasCompositor
 import com.waheed.artificerx.core.render.LayerBitmapStore
 import com.waheed.artificerx.ui.screens.canvas.StudioViewModel
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Executes a ParsedToolCall against the live StudioViewModel state
@@ -29,6 +36,12 @@ class ToolExecutor
         private val workspaceSearch: com.waheed.artificerx.core.search.WorkspaceSearch,
         private val workspaceBundleService: com.waheed.artificerx.core.importexport.WorkspaceBundleService,
         private val workspaceFileTools: com.waheed.artificerx.core.storage.WorkspaceFileTools,
+        private val runtimeToolExecutor: RuntimeToolExecutor,
+        private val builtinRecipeCatalog: BuiltinRecipeCatalog,
+        private val builtinRecipeExecutor: BuiltinRecipeExecutor,
+        private val nativeRasterCore: com.waheed.artificerx.core.native.NativeRasterCore,
+        private val sceneCompositionEngine: com.waheed.artificerx.core.creative.SceneCompositionEngine,
+        private val androidToolchainManager: com.waheed.artificerx.core.terminal.AndroidToolchainManager,
     ) {
         /** Used when the agent is operating purely in 3D Sculpt mode with
          *  no active 2D Studio session — routes only sculpt/mesh-family
@@ -70,6 +83,8 @@ class ToolExecutor
                 is ParsedToolCall.ListWorkspaceDirectory,
                 is ParsedToolCall.ReplaceWorkspaceText,
                 is ParsedToolCall.GenerateImage,
+                is ParsedToolCall.ComposeScene,
+                is ParsedToolCall.InspectAndroidToolchain,
                 is ParsedToolCall.Remember,
                 is ParsedToolCall.Recall,
                 is ParsedToolCall.CreateFile,
@@ -82,6 +97,7 @@ class ToolExecutor
                 is ParsedToolCall.ChecksumArtifact,
                 is ParsedToolCall.WorkspaceStatus,
                 is ParsedToolCall.Dynamic -> ToolExecutionResult.Failure("This tool requires the 2D workspace execution context.")
+                is ParsedToolCall.Invalid -> ToolExecutionResult.Failure(parsedCall.reasons.joinToString(" "))
                 // ParsedToolCall.WebFetch never actually reaches here —
                 // AgentOrchestrator.handleUserMessage() intercepts and routes
                 // it to executeWebFetch() (a real network call) before either
@@ -124,6 +140,7 @@ class ToolExecutor
                 is ParsedToolCall.ApplyPattern,
                 is ParsedToolCall.DrawCurve,
                 is ParsedToolCall.ImportImageLayer,
+                is ParsedToolCall.ComposeScene,
                 is ParsedToolCall.DeleteLayer,
                 is ParsedToolCall.SetCanvasBackground,
                 -> true
@@ -527,24 +544,62 @@ class ToolExecutor
                     ToolExecutionResult.Success("Workspace bundle created: ${ref.name} (${ref.sizeBytes} bytes), artifactId=${ref.id}")
                 }
 
-                is ParsedToolCall.Dynamic ->
-                    // Dead path kept only so this `when` stays exhaustive:
-                    // ToolCallParser no longer ever produces ParsedToolCall.Dynamic
-                    // (the fake 3,000-tool catalog and its no-op router were
-                    // removed — see ToolRegistry's note). If this is ever hit it
-                    // means something upstream still emits a "*_tool_*"-style
-                    // name; report it plainly rather than silently pretending
-                    // to have performed an action.
-                    ToolExecutionResult.Failure(
-                        "'${parsedCall.name}' is not a real tool. The dynamic capability catalog was removed. " +
-                            "Use one of: ${ToolRegistry.ALL_TOOLS.map { it.function.name }}",
-                    )
+                is ParsedToolCall.InvokeBuiltinRecipe -> {
+                    val args = runCatching {
+                        kotlinx.serialization.json.Json.parseToJsonElement(parsedCall.argsJson).jsonObject
+                            .mapValues { it.value.jsonPrimitive.content }
+                    }.getOrElse {
+                        return ToolExecutionResult.Failure("Invalid built-in recipe arguments: ${it.message ?: "invalid JSON"}")
+                    }
+                    builtinRecipeExecutor.execute(parsedCall.recipeId, args)
+                }
 
-                is ParsedToolCall.InspectCanvas ->
+                is ParsedToolCall.SearchBuiltinRecipes -> {
+                    BuiltinRecipeTools.summarize(builtinRecipeCatalog.search(parsedCall.query, parsedCall.limit))
+                }
+
+                is ParsedToolCall.InstallRuntimeTool -> {
+                    val config = runCatching {
+                        kotlinx.serialization.json.Json.parseToJsonElement(parsedCall.configJson).jsonObject
+                            .mapValues { it.value.jsonPrimitive.content }
+                    }.getOrElse { emptyMap() }
+                    if (parsedCall.configJson.trim() != "{}" && config.isEmpty()) {
+                        ToolExecutionResult.Failure("config_json must be a JSON object of string template values.")
+                    } else {
+                        RuntimeToolCatalog.install(
+                            com.waheed.artificerx.core.runtime.RuntimeToolSpec(
+                                name = parsedCall.name,
+                                description = parsedCall.description,
+                                operation = parsedCall.operation,
+                                inputSchemaJson = parsedCall.inputSchemaJson,
+                                config = config,
+                            ),
+                        ).fold(
+                            onSuccess = { ToolExecutionResult.Success("Installed runtime tool '${it.name}'. It is available to the next agent iteration.") },
+                            onFailure = { ToolExecutionResult.Failure(it.message ?: "Runtime tool installation failed") },
+                        )
+                    }
+                }
+
+                is ParsedToolCall.Dynamic -> {
+                    val args = runCatching {
+                        kotlinx.serialization.json.Json.parseToJsonElement(parsedCall.argsJson).jsonObject
+                            .mapValues { it.value.jsonPrimitive.content }
+                    }.getOrElse {
+                        return ToolExecutionResult.Failure("Invalid runtime tool arguments: ${it.message ?: "invalid JSON"}")
+                    }
+                    runtimeToolExecutor.execute(parsedCall.name, args)
+                }
+
+                is ParsedToolCall.InspectCanvas -> {
+                    val snapshot = viewModel.captureSnapshotNow()
+                    val nativeStats = runCatching { nativeRasterCore.analyze(snapshot) }
+                        .getOrElse { "native_analysis_error=${it.message ?: "unknown"}" }
                     ToolExecutionResult.Success(
-                        "Snapshot requested",
+                        "Snapshot requested\nNATIVE_RASTER=${nativeStats}",
                         requiresSnapshot = true,
                     )
+                }
 
                 is ParsedToolCall.PickColor -> {
                     val snapshot = viewModel.captureSnapshotNow()
@@ -693,6 +748,23 @@ class ToolExecutor
                             ToolExecutionResult.Failure("Failed to draw curve — layer bitmap unavailable.")
                         }
                     }
+                }
+
+                is ParsedToolCall.InspectAndroidToolchain -> {
+                    val snapshot=androidToolchainManager.inspect()
+                    ToolExecutionResult.Success(
+                        "Android=${snapshot.androidRelease}; SDK=${snapshot.sdkRoot ?: "unknown"}; " +
+                            "platforms=${snapshot.platforms}; buildTools=${snapshot.buildTools}; ndks=${snapshot.ndks}; cmake=${snapshot.cmake}; " +
+                            "java=${snapshot.javaVersion}; git=${snapshot.gitAvailable}; adb=${snapshot.adbAvailable}"
+                    )
+                }
+
+                is ParsedToolCall.ComposeScene -> {
+                    runCatching { sceneCompositionEngine.compose(parsedCall.request, viewModel) }
+                        .fold(
+                            onSuccess = { ToolExecutionResult.Success(it, requiresSnapshot = true) },
+                            onFailure = { ToolExecutionResult.Failure("Scene composition failed: ${it.message ?: "unknown"}") },
+                        )
                 }
 
                 is ParsedToolCall.ImportImageLayer -> {
@@ -868,6 +940,9 @@ class ToolExecutor
                     ToolExecutionResult.Failure(
                         "Unknown tool '${parsedCall.toolName}'. Available tools: ${ToolRegistry.ALL_TOOLS.map { it.function.name }}",
                     )
+
+                is ParsedToolCall.Invalid ->
+                    ToolExecutionResult.Failure(parsedCall.reasons.joinToString(" "))
             }
 
             // CRITICAL FIX (v0.4.30): every pixel-mutating branch above writes
