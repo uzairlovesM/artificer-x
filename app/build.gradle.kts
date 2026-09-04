@@ -316,12 +316,39 @@ android {
     // ── Per-ABI split debug APKs ──
     // llama.cpp's native libraries roughly quadruple APK size across
     // arm64-v8a/armeabi-v7a/x86/x86_64 if shipped as one fat APK;
-    // splitting here means CI's debug-APK artifact is the actual
-    // per-device size a real install would be, not an inflated
-    // universal APK that misrepresents it.
+    // splitting here means CI's debug-APK artifact reflects the
+    // actual per-device size a real install would be, not an
+    // inflated universal APK that misrepresents it.
+    //
+    // IMPORTANT: this is scoped to debug-only invocations. AGP's
+    // `splits {}` block is module-wide, not per-build-type, so there
+    // is no DSL-level way to say "only for debug" inside the block
+    // itself — isEnable is instead computed once during configuration
+    // from gradle.startParameter.taskNames (this project's CI does
+    // not pass --configuration-cache, only --build-cache — see
+    // GRADLE_CONFIG_CACHE_FLAGS in build.yml — so reading
+    // startParameter here is safe and does not break caching).
+    //
+    // Why this matters: AGP's bundleRelease — which produces the .aab
+    // that bundletool then converts into the single .apks deliverable
+    // this pipeline ships (see the bundle{} block above) — is
+    // fundamentally incompatible with per-ABI split APKs existing for
+    // the release variant. R8's minifyReleaseWithR8 writes one
+    // shrunk-resources file per split ABI, and buildReleasePreBundle
+    // then finds multiple candidate files where it expects exactly
+    // one, hard-failing with "Multiple shrunk-resources files found"
+    // (confirmed AGP/bundle limitation, not a project misconfiguration
+    // — see https://issuetracker.google.com/402800800). Since
+    // release's only shipped output is now the AAB-derived .apks (no
+    // standalone release .apk is uploaded by build.yml), there's no
+    // downside to keeping splits debug-only — debug keeps its real
+    // per-ABI size signal, release keeps bundleRelease working.
     splits {
         abi {
-            isEnable = true
+            isEnable = gradle.startParameter.taskNames.none { taskName ->
+                taskName.contains("Release", ignoreCase = false) ||
+                    taskName.contains("bundle", ignoreCase = true)
+            }
             reset()
             include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
             isUniversalApk = true

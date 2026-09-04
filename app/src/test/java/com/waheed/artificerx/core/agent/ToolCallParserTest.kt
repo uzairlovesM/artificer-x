@@ -28,10 +28,17 @@ class ToolCallParserTest {
     }
 
     @Test
-    fun `create_layer with missing name falls back to default instead of crashing`() {
+    fun `create_layer with missing name returns Invalid with a clear reason instead of a silent default`() {
+        // ToolCallValidator now treats 'name' as required (per
+        // createLayerTool()'s own JSON schema in ToolRegistry) so the
+        // model finds out it made a mistake and can self-correct,
+        // rather than the previous silent "New Layer" fallback masking
+        // it — see ToolCallValidator's KDoc and ParsedToolCall.Invalid.
         val result = ToolCallParser.parse(toolCall("create_layer", "{}"))
-        assertTrue(result is ParsedToolCall.CreateLayer)
-        assertEquals("New Layer", (result as ParsedToolCall.CreateLayer).name)
+        assertTrue(result is ParsedToolCall.Invalid)
+        val invalid = result as ParsedToolCall.Invalid
+        assertEquals("create_layer", invalid.toolName)
+        assertTrue(invalid.reasons.any { it.contains("name") })
     }
 
     @Test
@@ -47,10 +54,18 @@ class ToolCallParserTest {
     }
 
     @Test
-    fun `draw_path with completely malformed JSON does not throw and returns empty points`() {
+    fun `draw_path with completely malformed JSON returns Invalid instead of crashing`() {
+        // Malformed JSON parses to an empty args object (ToolCallParser's
+        // own defensive fallback), which then fails ToolCallValidator's
+        // required-field check for 'points' — so this now surfaces as a
+        // structured Invalid result the agent loop can show the model,
+        // not a silent empty-points DrawPath that hides the malformed
+        // input entirely.
         val result = ToolCallParser.parse(toolCall("draw_path", "not valid json at all {{{"))
-        assertTrue(result is ParsedToolCall.DrawPath)
-        assertEquals(emptyList<Float>(), (result as ParsedToolCall.DrawPath).points)
+        assertTrue(result is ParsedToolCall.Invalid)
+        val invalid = result as ParsedToolCall.Invalid
+        assertEquals("draw_path", invalid.toolName)
+        assertTrue(invalid.reasons.any { it.contains("points") })
     }
 
     @Test

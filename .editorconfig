@@ -33,12 +33,24 @@ ktlint_standard_backing-property-naming = disabled
 # firing thousands of times across generated capability/expansion
 # files that are intentionally terse. Real correctness rules (spacing,
 # indentation, trailing commas, blank-line hygiene) stay enabled below.
+#
+# IMPORTANT: `ktlint_standard_wrapping` itself is NOT disabled here
+# (unlike the more specific wrapping rules below). ktlint's
+# trailing-comma-on-call-site and trailing-comma-on-declaration-site
+# rules have a hard dependency on `wrapping` being loaded — disabling
+# `wrapping` doesn't just skip it, it makes ktlint refuse to load
+# those two dependent rules at all and hard-fail the whole
+# runKtlintCheckOver*SourceSet task with "Rule ... requires rule
+# ... to be loaded" (this was tried and caused exactly that failure).
+# Disabling the specific multiline-expression-wrapping /
+# argument-list-wrapping / parameter-list-wrapping rules below already
+# achieves the same "don't force one-parameter-per-line" outcome
+# without pulling the rule those two depend on out from under them.
 ktlint_standard_argument-list-wrapping = disabled
 ktlint_standard_parameter-list-wrapping = disabled
 ktlint_standard_function-signature = disabled
 ktlint_standard_multiline-expression-wrapping = disabled
 ktlint_standard_string-template-indent = disabled
-ktlint_standard_wrapping = disabled
 ktlint_standard_condition-wrapping = disabled
 ktlint_standard_when-entry-bracing = disabled
 ktlint_standard_annotation = disabled

@@ -7,7 +7,14 @@ import org.junit.Test
 
 class FeatureWiringAuditTest {
     @Test fun registry_has_large_real_capability_surface() {
-        assertTrue(ToolRegistry.ALL_TOOLS.size >= 1000)
+        // Previously asserted >= 1000 — that counted synthetic numbered
+        // placeholder tool schemas that have since been removed from
+        // ToolRegistry as part of a reliability audit (unaudited
+        // generated stubs whose operations didn't map to real
+        // executors). See ToolSelectionPolicyTest's
+        // massiveCatalogIsNotSentWholeToProvider for the full
+        // explanation of the current, real tool count.
+        assertTrue(ToolRegistry.ALL_TOOLS.size > 40)
     }
 
     @Test fun every_expected_feature_has_plugin_families() {
