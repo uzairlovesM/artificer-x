@@ -224,6 +224,11 @@ jobs:
         run: |
           python3 tools/verify-deep-project.py
 
+      - name: 1g. Source Contract Preflight
+        id: step_source_contracts
+        continue-on-error: true
+        run: python3 tools/verify-source-contracts.py
+
       - name: Create ci-reports directory
         run: mkdir -p ci-reports
 
@@ -949,6 +954,7 @@ jobs:
           echo "| 0 | AAR Metadata / SDK Compatibility Pre-flight | ${{ steps.step_aar_metadata_preflight.outcome }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 1 | Gradle Wrapper Validation | ${{ steps.step_wrapper_validation.outcome }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 1b | Version Catalog Consistency Check | ${{ steps.step_catalog_consistency.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 1g | Source Contract Preflight | ${{ steps.step_source_contracts.outcome }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 2 | Secret Detection | ${{ steps.step_secret_detection.outcome }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 3 | Dependency Resolution | ${{ steps.step_dependency_resolution.outcome }} |" >> $GITHUB_STEP_SUMMARY
           echo "| 4 | Dependency Locking | ${{ steps.step_dependency_locking.outcome }} |" >> $GITHUB_STEP_SUMMARY
@@ -989,6 +995,7 @@ jobs:
             "${{ steps.step_aar_metadata_preflight.outcome }}" \
             "${{ steps.step_wrapper_validation.outcome }}" \
             "${{ steps.step_catalog_consistency.outcome }}" \
+            "${{ steps.step_source_contracts.outcome }}" \
             "${{ steps.step_secret_detection.outcome }}" \
             "${{ steps.step_dependency_resolution.outcome }}" \
             "${{ steps.step_dependency_locking.outcome }}" \

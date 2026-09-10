@@ -4,8 +4,15 @@ import android.content.Context
 import android.graphics.*
 import android.util.Log
 import com.waheed.artificerx.core.runtime.Callback
+import com.waheed.artificerx.ai.ai.common.DrawingContext
+import com.waheed.artificerx.ai.ai.common.DrawingResult
+import com.waheed.artificerx.ai.ai.common.ErrorHandler
+import com.waheed.artificerx.ai.ai.common.MultipleModelFailureException
+import com.waheed.artificerx.ai.ai.common.ModelError
+import com.waheed.artificerx.core.util.DebugLogger
 import kotlinx.coroutines.*
 import java.util.*
+
 
 class BrushEngine(private val context: Context) : ErrorHandler by MultiModalErrorAggregator() {
     private val engineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -31,7 +38,7 @@ class BrushEngine(private val context: Context) : ErrorHandler by MultiModalErro
 
         // Process aggregated errors if any occurred
         if (errors.isNotEmpty()) {
-            throw aggregateErrors(*errors.toTypedArray())
+            throw MultipleModelFailureException(errors.map { ModelError("brush", it.message) })
         }
 
         // Return successful result after all operations
@@ -94,12 +101,12 @@ class BrushEngine(private val context: Context) : ErrorHandler by MultiModalErro
                 paint.maskFilter = blur
             }
             BrushType.TEXTURED -> {
-                val textureShader = BitmapShader(brush.texture, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+                val textureShader = BitmapShader(brush.texture ?: Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888), Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
                 paint.shader = textureShader
                 // Advanced texture emboss effect
                 paint.maskFilter = EmbossMaskFilter(floatArrayOf(1.0f, 1.0f, 90f), 0.8f, brush.size * 2, 12f)
             }
-            BrushType.ERASER -> EraserMask(brush.size, brush.size).also { paint.xfermode = it }
+            BrushType.ERASER -> PorterDuffXfermode(PorterDuff.Mode.CLEAR).also { paint.xfermode = it }
         }
         return paint
     }
@@ -138,7 +145,7 @@ class BrushEngine(private val context: Context) : ErrorHandler by MultiModalErro
 
     // Advanced pressure-aware brush adjustment
     private class PressureManager {
-        fun adjustSize(baseSize: Float): Float = baseSize * (0.5f..2.0f).random() // Simulated pressure effect
+        fun adjustSize(baseSize: Float): Float = baseSize * 0.5f + kotlin.random.Random.nextFloat() * 1.5f // Simulated pressure effect
     }
 
     // Advanced shape generators for complex brush shapes

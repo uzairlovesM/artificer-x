@@ -6,6 +6,7 @@ import com.waheed.artificerx.core.agent.AgentEvent
 import com.waheed.artificerx.core.chat.ChatProfile
 import com.waheed.artificerx.core.chat.ChatProfileStore
 import com.waheed.artificerx.core.agent.AgentOrchestrator
+import com.waheed.artificerx.core.artifact.ArtifactStore
 import com.waheed.artificerx.core.export.ImageExporter
 import com.waheed.artificerx.core.network.ChatMessageDto
 import com.waheed.artificerx.data.repository.ProviderConfigRepository
@@ -51,6 +52,8 @@ data class AgentChatUiState(
     val localModelTokensPerSecond: Double? = null,
     val chatProfiles: List<ChatProfile> = emptyList(),
     val activeProfileId: String? = null,
+    val thinkingEnabled: Boolean = false,
+    val reasoningEffort: String = "medium",
 )
 
 /**
@@ -75,11 +78,23 @@ class AgentChatViewModel
         private val chatSessionDataStore: ChatSessionDataStore,
         private val responseArtifactMaterializer: com.waheed.artificerx.core.agent.AIResponseArtifactMaterializer,
         private val chatProfileStore: ChatProfileStore,
+        private val agentSettingsDataStore: com.waheed.artificerx.data.local.datastore.AgentSettingsDataStore,
+        private val artifactStore: ArtifactStore,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow(AgentChatUiState())
         init {
             viewModelScope.launch { chatProfileStore.profiles.collect { profiles -> _uiState.update { it.copy(chatProfiles = profiles) } } }
             viewModelScope.launch { chatProfileStore.activeProfileId.collect { id -> _uiState.update { it.copy(activeProfileId = id) } } }
+            viewModelScope.launch {
+                agentSettingsDataStore.settings.collect { settings ->
+                    _uiState.update {
+                        it.copy(
+                            thinkingEnabled = settings.thinkingEnabled || settings.qualityPreset == com.waheed.artificerx.data.local.datastore.QualityPreset.DEEP_STUDIO,
+                            reasoningEffort = settings.reasoningEffort ?: "medium",
+                        )
+                    }
+                }
+            }
         }
         val uiState: StateFlow<AgentChatUiState> = _uiState.asStateFlow()
 
@@ -195,6 +210,72 @@ class AgentChatViewModel
             base64: String?,
         ) {
             _uiState.update { it.copy(attachedImageUri = uri, attachedImageBase64 = base64) }
+        }
+
+        fun toggleThinking() {
+            viewModelScope.launch {
+                agentSettingsDataStore.setThinkingEnabled(!_uiState.value.thinkingEnabled)
+            }
+        }
+
+        fun cycleEffort() {
+            viewModelScope.launch {
+                val next = when (_uiState.value.reasoningEffort.lowercase()) {
+                    "low" -> "medium"
+                    "medium" -> "high"
+                    else -> "low"
+                }
+                agentSettingsDataStore.setReasoningEffort(next)
+            }
+        }
+
+        fun saveAgentOutput(message: ChatMessage) {
+            if (message.role != ChatMessageRole.AGENT || message.text.isBlank()) return
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss_SSS", java.util.Locale.US).format(java.util.Date())
+                    val safeName = "ArtificerX_AI_$timestamp.md"
+
+                    // Keep an internal artifact for workspace continuity.
+                    val ref = artifactStore.writeText(
+                        _uiState.value.activeThreadId.ifBlank { "default" },
+                        safeName,
+                        message.text,
+                        "text/markdown",
+                        "chat_save_button",
+                    )
+
+                    // Also write a user-visible copy to Downloads/ArtificerX using MediaStore,
+                    // which is the correct Android 10+ scoped-storage route and requires no
+                    // broad storage permission.
+                    val values = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.Downloads.DISPLAY_NAME, safeName)
+                        put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/markdown")
+                        put(android.provider.MediaStore.Downloads.RELATIVE_PATH, "Download/ArtificerX")
+                        put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
+                    }
+                    val collection = android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
+                    val publicUri = com.waheed.artificerx.util.AppContextHolder.context.contentResolver.insert(collection, values)
+                        ?: error("Android could not create the Downloads file")
+                    try {
+                        com.waheed.artificerx.util.AppContextHolder.context.contentResolver.openOutputStream(publicUri)?.use {
+                            it.write(message.text.toByteArray(Charsets.UTF_8))
+                        } ?: error("Android could not open the saved file")
+                        values.clear()
+                        values.put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
+                        com.waheed.artificerx.util.AppContextHolder.context.contentResolver.update(publicUri, values, null, null)
+                    } catch (t: Throwable) {
+                        com.waheed.artificerx.util.AppContextHolder.context.contentResolver.delete(publicUri, null, null)
+                        throw t
+                    }
+
+                    updateAgentMessage(message.id) {
+                        it.copy(autoSavedFileName = ref.name, autoSavedUri = publicUri)
+                    }
+                }.onFailure { error ->
+                    _uiState.update { it.copy(lastErrorMessage = "Save failed: ${error.message ?: "unknown error"}") }
+                }
+            }
         }
 
         fun sendMessage() {

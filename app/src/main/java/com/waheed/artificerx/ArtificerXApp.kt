@@ -116,6 +116,7 @@ class ArtificerXApp :
 
     override fun onCreate() {
         super<Application>.onCreate()
+        com.waheed.artificerx.util.AppContextHolder.init(this)
         if (isDebugBuild()) {
             timber.log.Timber.plant(timber.log.Timber.DebugTree())
         }
@@ -132,7 +133,6 @@ class ArtificerXApp :
         advancedCapabilityCatalog.registerDefaults()
         workspaceManifestService.refresh()
         workspaceMaintenanceScheduler.schedule()
-        automationScheduler.scheduleDaily()
         Log.i(TAG, "ARTIFICER-X process started. debug=${isDebugBuild()} capabilities=${advancedCapabilityCatalog.all().size}")
     }
 

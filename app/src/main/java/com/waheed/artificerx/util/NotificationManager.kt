@@ -4,32 +4,20 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import dagger.hilt.android.qualifiers.ApplicationContext
-import dagger.hilt.android.scopes.SingletonComponent
-import dagger.hilt.components.SingletonComponent
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class NotificationManager @Inject constructor(
-    @ApplicationContext val context: Application
+    @ApplicationContext private val context: android.content.Context,
 ) {
+    private fun manager(): NotificationManager = context.getSystemService(NotificationManager::class.java)
+
     fun createDefaultChannel() {
-        val channel = NotificationChannel(
-            "artificerx_default",
-            "ArtificerX Notifications",
-            NotificationManager.IMPORTANCE_DEFAULT
-        )
-        context.getSystemService(NotificationManager::class.java).createChannel(channel)
+        manager().createNotificationChannel(NotificationChannel("artificerx_default", "ArtificerX Notifications", NotificationManager.IMPORTANCE_DEFAULT))
     }
 
     fun createHighPriorityChannel() {
-        val channel = NotificationChannel(
-            "artificerx_alert",
-            "ArtificerX Alerts",
-            NotificationManager.IMPORTANCE_HIGH
-        )
-        context.getSystemService(NotificationManager::class.java).createChannel(channel)
+        manager().createNotificationChannel(NotificationChannel("artificerx_alert", "ArtificerX Alerts", NotificationManager.IMPORTANCE_HIGH))
     }
-
-    // Additional channel methods could be added here
 }

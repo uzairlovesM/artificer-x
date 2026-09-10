@@ -88,8 +88,8 @@ android {
         // The device itself is Android 13, but targetSdk is a build contract, not the
         // device API level. This private build intentionally opts into API-36 behavior.
         targetSdk = 36
-        versionCode = 14
-        versionName = "1.0.0-alpha05"
+        versionCode = 15
+        versionName = "1.0.0-alpha06"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

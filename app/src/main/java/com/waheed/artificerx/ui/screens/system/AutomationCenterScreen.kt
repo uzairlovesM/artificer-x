@@ -34,7 +34,7 @@ import javax.inject.Inject
 class AutomationCenterViewModel @Inject constructor(private val repo: AutomationRepository, private val engine: AutomationEngine, private val scheduler: AutomationScheduler): ViewModel() {
     private val _rules = MutableStateFlow<List<AutomationRule>>(emptyList()); val rules = _rules.asStateFlow()
     private val _logs = MutableStateFlow<List<String>>(emptyList()); val logs = _logs.asStateFlow()
-    init { refresh(); scheduler.scheduleDaily() }
+    init { refresh() }
     fun refresh() = viewModelScope.launch { _rules.value = repo.list() }
     fun run(rule: AutomationRule) = viewModelScope.launch { _logs.value = listOf("${rule.name}: ${engine.run(rule)}") + _logs.value.take(9) }
     fun toggle(rule: AutomationRule) = viewModelScope.launch { repo.save(_rules.value.map { if (it.id == rule.id) it.copy(enabled = !it.enabled) else it }); refresh() }

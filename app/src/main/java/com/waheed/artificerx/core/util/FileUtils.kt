@@ -3,6 +3,7 @@ package com.waheed.artificerx.core.util
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.io.FileOutputStream
 
 class FileUtils {
     fun copyFile(sourcePath: String, destPath: String): Boolean {
@@ -12,7 +13,7 @@ class FileUtils {
             sourceFile.copyTo(destFile, overwrite = true)
             true
         } catch (e: IOException) {
-            DebugLogger.e("FileUtils", "Copy failed from $sourcePath to $destPath", e)
+            DebugLogger.e("Copy failed from $sourcePath to $destPath", e)
             false
         }
     }
@@ -22,7 +23,7 @@ class FileUtils {
         return if (file.exists()) {
             file.readText(Charsets.UTF_8)
         } else {
-            DebugLogger.e("FileUtils", "File not found: $filePath")
+            DebugLogger.e("File not found: $filePath")
             null
         }
     }
@@ -33,10 +34,10 @@ class FileUtils {
             if (!file.parentFile.exists()) {
                 file.parentFile.mkdirs()
             }
-            file.writeText(content, Charsets.UTF_8, append)
+            if (append) file.appendText(content, Charsets.UTF_8) else file.writeText(content, Charsets.UTF_8)
             true
         } catch (e: IOException) {
-            DebugLogger.e("FileUtils", "Write failed: $filePath", e)
+            DebugLogger.e("Write failed: $filePath", e)
             false
         }
     }
@@ -44,7 +45,7 @@ class FileUtils {
     fun checkFileExists(filePath: String): Boolean {
         val file = File(filePath)
         if (!file.exists()) {
-            DebugLogger.w("FileUtils", "File does not exist: $filePath")
+            DebugLogger.e("File does not exist: $filePath")
         }
         return file.exists()
     }
@@ -70,7 +71,7 @@ class FileUtils {
             }
             digest.digest().joinToString("") { "%02x".format(it) }
         } catch (e: Exception) {
-            DebugLogger.e("FileUtils", "MD5 failed: $filePath", e)
+            DebugLogger.e("MD5 failed: $filePath", e)
             null
         }
     }

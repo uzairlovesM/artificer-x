@@ -35,10 +35,19 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -111,8 +120,19 @@ fun AgentChatScreen(
                         withContext(kotlinx.coroutines.Dispatchers.IO) {
                             runCatching {
                                 val inputStream = context.contentResolver.openInputStream(uri)
-                                val bytes = inputStream?.use { it.readBytes() }
-                                bytes?.let { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) }
+                                val bytes = inputStream?.use { it.readBytes() } ?: return@runCatching null
+                                val source = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                    ?: return@runCatching null
+                                val maxSide = 1536
+                                val scale = (maxSide.toFloat() / maxOf(source.width, source.height)).coerceAtMost(1f)
+                                val resized = if (scale < 1f) {
+                                    android.graphics.Bitmap.createScaledBitmap(source, (source.width * scale).toInt().coerceAtLeast(1), (source.height * scale).toInt().coerceAtLeast(1), true)
+                                } else source
+                                val output = java.io.ByteArrayOutputStream()
+                                resized.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, output)
+                                if (resized !== source) resized.recycle()
+                                source.recycle()
+                                android.util.Base64.encodeToString(output.toByteArray(), android.util.Base64.NO_WRAP)
                             }.getOrNull()
                         }
                     if (base64 != null) {
@@ -177,6 +197,10 @@ fun AgentChatScreen(
             onNewThread = viewModel::newThread,
             onOpenThreads = { showThreads = true },
             onOpenProfiles = { showProfiles = true },
+            thinkingEnabled = state.thinkingEnabled,
+            effort = state.reasoningEffort,
+            onToggleThinking = viewModel::toggleThinking,
+            onCycleEffort = viewModel::cycleEffort,
         )
 
         if (showThreads) {
@@ -235,7 +259,7 @@ fun AgentChatScreen(
                 androidx.compose.animation.AnimatedVisibility(
                     visible = true,
                     enter = fadeIn(animationSpec = androidx.compose.animation.core.tween(220)) + slideInVertically(initialOffsetY = { it / 5 }, animationSpec = androidx.compose.animation.core.tween(220)),
-                ) { ChatBubble(message) }
+                ) { ChatBubble(message, onSave = { viewModel.saveAgentOutput(message) }) }
             }
             if (state.isAgentResponding) {
                 item { TypingIndicatorBubble() }
@@ -275,24 +299,56 @@ private fun ChatTopBar(
     onNewThread: () -> Unit,
     onOpenThreads: () -> Unit,
     onOpenProfiles: () -> Unit,
+    thinkingEnabled: Boolean,
+    effort: String,
+    onToggleThinking: () -> Unit,
+    onCycleEffort: () -> Unit,
 ) {
-    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") }
-        androidx.compose.material3.Surface(
-            onClick = onOpenThreads,
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-        ) {
-            Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Chat, contentDescription = null, modifier = Modifier.size(17.dp))
-                Spacer(modifier = Modifier.size(7.dp))
-                Text("Conversations", style = MaterialTheme.typography.labelLarge)
+    Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") }
+            Surface(
+                onClick = onOpenThreads,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+            ) {
+                Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Chat, contentDescription = null, modifier = Modifier.size(17.dp))
+                    Spacer(modifier = Modifier.size(7.dp))
+                    Text("Conversations", style = MaterialTheme.typography.labelLarge)
+                }
             }
+            Spacer(modifier = Modifier.weight(1f))
+            IconButton(onClick = onOpenProfiles) { Icon(Icons.Filled.Build, contentDescription = "AI profiles", tint = GoldPrimary) }
+            IconButton(onClick = onNewThread) { Icon(Icons.Filled.Add, contentDescription = "New conversation", tint = GoldPrimary) }
+            IconButton(onClick = onClear) { Icon(Icons.Filled.DeleteSweep, contentDescription = "Delete conversation", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
-        Spacer(modifier = Modifier.weight(1f))
-        IconButton(onClick = onOpenProfiles) { Icon(Icons.Filled.Build, contentDescription = "AI profiles", tint = GoldPrimary) }
-        IconButton(onClick = onNewThread) { Icon(Icons.Filled.Add, contentDescription = "New conversation", tint = GoldPrimary) }
-        IconButton(onClick = onClear) { Icon(Icons.Filled.DeleteSweep, contentDescription = "Delete conversation", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AssistChip(
+                onClick = onToggleThinking,
+                label = { Text(if (thinkingEnabled) "Thinking ON" else "Thinking OFF") },
+                leadingIcon = { Icon(Icons.Filled.Psychology, null, Modifier.size(16.dp)) },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = if (thinkingEnabled) GoldPrimary.copy(alpha = 0.20f) else MaterialTheme.colorScheme.surfaceVariant,
+                ),
+            )
+            AssistChip(
+                onClick = onCycleEffort,
+                label = { Text("Effort ${effort.replaceFirstChar { it.uppercase() }}") },
+                leadingIcon = { Icon(Icons.Filled.Tune, null, Modifier.size(16.dp)) },
+            )
+            Text(
+                text = if (thinkingEnabled) "Deeper reasoning hint enabled" else "Normal reasoning",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -340,75 +396,121 @@ private fun StreamingCursor() {
 }
 
 @Composable
-private fun ChatBubble(message: ChatMessage) {
+private fun ChatBubble(message: ChatMessage, onSave: () -> Unit) {
     val isUser = message.role == ChatMessageRole.USER
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
-    ) {
-        Column(
-            modifier =
-                Modifier
-                    .widthIn(max = 280.dp)
-                    .clip(if (isUser) ChatBubbleUserShape else ChatBubbleAgentShape)
-                    .animateContentSize(animationSpec = androidx.compose.animation.core.tween(180))
-                    .background(
-                        if (isUser) {
-                            GoldPrimary.copy(alpha = 0.88f)
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant
-                        },
-                    ).padding(12.dp),
-        ) {
-            // v0.4.30: real per-token streaming (AgentOrchestrator.stream
-            // CloudProvider) means text can visibly still be arriving —
-            // a blinking cursor after the last character is the standard
-            // "still typing" affordance (ChatGPT/Claude apps use the
-            // same idea) and was meaningless before this fix, since the
-            // old fake streaming delivered the whole reply in one shot
-            // with nothing left to indicate.
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(
-                    text = message.text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (isUser) androidx.compose.ui.graphics.Color.White else MaterialTheme.colorScheme.onBackground,
-                )
-                if (message.isStreaming) {
-                    StreamingCursor()
+    val context = LocalContext.current
+    var showPreview by androidx.compose.runtime.remember(message.id) { androidx.compose.runtime.mutableStateOf(false) }
+    var showSummary by androidx.compose.runtime.remember(message.id) { androidx.compose.runtime.mutableStateOf(false) }
+
+    if (showPreview) {
+        AlertDialog(
+            onDismissRequest = { showPreview = false },
+            title = { Text(if (message.autoSavedUri != null) "Output Preview" else "Response Preview") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (message.autoSavedUri != null && isVisualArtifact(message.autoSavedFileName)) {
+                        AsyncImage(
+                            model = message.autoSavedUri,
+                            contentDescription = "Saved AI output",
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
+                        )
+                        Text(message.autoSavedFileName.orEmpty(), style = MaterialTheme.typography.labelSmall)
+                    } else {
+                        Text(
+                            text = if (message.text.isNotBlank()) message.text.take(16000) else "Saved output: ${message.autoSavedFileName.orEmpty()}",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                 }
+            },
+            confirmButton = { TextButton(onClick = { showPreview = false }) { Text("Close") } },
+        )
+    }
+    if (showSummary) {
+        AlertDialog(
+            onDismissRequest = { showSummary = false },
+            title = { Text("Turn summary") },
+            text = { ExecutionSummary(message) },
+            confirmButton = { TextButton(onClick = { showSummary = false }) { Text("Done") } },
+        )
+    }
+
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
+        Column(
+            modifier = Modifier.widthIn(max = 360.dp).clip(if (isUser) ChatBubbleUserShape else ChatBubbleAgentShape).animateContentSize(animationSpec = androidx.compose.animation.core.tween(180))
+                .background(if (isUser) GoldPrimary.copy(alpha = 0.88f) else MaterialTheme.colorScheme.surfaceVariant).padding(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(text = message.text, style = MaterialTheme.typography.bodyMedium, color = if (isUser) androidx.compose.ui.graphics.Color.White else MaterialTheme.colorScheme.onBackground)
+                if (message.isStreaming) StreamingCursor()
+            }
+
+            if (!isUser && message.text.isNotBlank()) {
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = {
+                        val cm = context.getSystemService(android.content.ClipboardManager::class.java)
+                        cm?.setPrimaryClip(android.content.ClipData.newPlainText("ArtificerX AI response", message.text))
+                    }) { Icon(Icons.Filled.ContentCopy, null, Modifier.size(16.dp)); Spacer(Modifier.size(4.dp)); Text("Copy") }
+                    TextButton(onClick = { showPreview = true }) { Icon(Icons.Filled.Visibility, null, Modifier.size(16.dp)); Spacer(Modifier.size(4.dp)); Text("Preview") }
+                    TextButton(onClick = { showSummary = true }) { Text("Summary") }
+                }
+            }
+
+            if (!isUser && message.text.isNotBlank() && message.autoSavedUri == null) {
+                TextButton(onClick = onSave) { Icon(Icons.Filled.Save, null, Modifier.size(16.dp)); Spacer(Modifier.size(4.dp)); Text("Save") }
             }
 
             if (message.toolCalls.isNotEmpty()) {
                 Spacer(modifier = Modifier.padding(top = 8.dp))
-                message.toolCalls.forEach { toolCall ->
-                    ToolCallChip(toolCall)
-                    Spacer(modifier = Modifier.padding(top = 4.dp))
-                }
+                message.toolCalls.forEach { toolCall -> ToolCallChip(toolCall); Spacer(modifier = Modifier.padding(top = 4.dp)) }
             }
 
-            // v0.4.30: every AI turn that touches the canvas auto-saves to
-            // Pictures/ARTIFICER-X (see AgentChatViewModel.applyAgentEvent).
-            // This row is the visible confirmation of that, plus a direct
-            // way to actually look at or share what got saved without
-            // leaving the chat to go hunt through a gallery app.
             if (message.autoSavedUri != null) {
                 Spacer(modifier = Modifier.padding(top = 8.dp))
-                AsyncImage(
-                    model = message.autoSavedUri,
-                    contentDescription = "AI generated output",
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp).clip(ChatBubbleAgentShape),
-                )
+                if (isVisualArtifact(message.autoSavedFileName)) {
+                    AsyncImage(
+                        model = message.autoSavedUri,
+                        contentDescription = "AI generated output",
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp).clip(ChatBubbleAgentShape),
+                    )
+                } else {
+                    Surface(
+                        shape = ToolCallChipShape,
+                        color = MaterialTheme.colorScheme.background,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = "Saved output\n${message.autoSavedFileName.orEmpty()}",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
+                }
                 AutoSavedRow(fileName = message.autoSavedFileName.orEmpty(), uri = message.autoSavedUri)
             }
 
             message.toolCalls.filter { it.status == ToolCallStatus.SUCCESS && (it.resultSummary?.contains("Created artifact") == true || it.resultSummary?.contains("Created ZIP") == true) }.forEach { tool ->
                 val path = Regex("at (.+)$").find(tool.resultSummary.orEmpty())?.groupValues?.getOrNull(1)
-                if (!path.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.padding(top = 6.dp))
-                    ArtifactActionRow(fileName = tool.toolName, path = path)
-                }
+                if (!path.isNullOrBlank()) ArtifactActionRow(fileName = tool.argsPreview.ifBlank { tool.toolName }, path = path)
             }
         }
+    }
+}
+
+@Composable
+private fun ExecutionSummary(message: ChatMessage) {
+    val successful = message.toolCalls.count { it.status == ToolCallStatus.SUCCESS }
+    val failed = message.toolCalls.count { it.status == ToolCallStatus.FAILED }
+    val webCalls = message.toolCalls.count { it.toolName == "web_search" || it.toolName == "web_fetch" }
+    val outputs = message.toolCalls.count { it.toolName == "generate_image" || it.toolName == "response_artifact" || it.toolName == "create_file" || it.toolName == "create_zip" }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("The app does not expose hidden private chain-of-thought. This panel shows the work that was actually executed.", style = MaterialTheme.typography.bodySmall)
+        Text("Executed tools: ${message.toolCalls.size}")
+        Text("Successful: $successful   Failed: $failed")
+        Text("Web research calls: $webCalls")
+        Text("Materialized outputs: $outputs")
+        if (message.autoSavedFileName != null) Text("Saved output: ${message.autoSavedFileName}")
+        if (message.text.isNotBlank()) Text("Response: ${message.text.take(800)}", style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -432,11 +534,32 @@ private fun ArtifactActionRow(fileName: String, path: String) {
 }
 
 @Composable
+private fun isVisualArtifact(fileName: String?): Boolean {
+    val ext = fileName?.substringAfterLast('.', "")?.lowercase().orEmpty()
+    return ext in setOf("png", "jpg", "jpeg", "webp", "gif", "bmp")
+}
+
+private fun artifactMimeType(fileName: String): String = when (fileName.substringAfterLast('.', "").lowercase()) {
+    "png" -> "image/png"
+    "jpg", "jpeg" -> "image/jpeg"
+    "webp" -> "image/webp"
+    "gif" -> "image/gif"
+    "bmp" -> "image/bmp"
+    "md", "markdown" -> "text/markdown"
+    "txt" -> "text/plain"
+    "json" -> "application/json"
+    "html", "htm" -> "text/html"
+    "zip" -> "application/zip"
+    else -> "application/octet-stream"
+}
+
+@Composable
 private fun AutoSavedRow(
     fileName: String,
     uri: android.net.Uri,
 ) {
     val context = LocalContext.current
+    val mime = artifactMimeType(fileName)
     Row(
         modifier =
             Modifier
@@ -460,14 +583,14 @@ private fun AutoSavedRow(
                 runCatching {
                     context.startActivity(
                         android.content.Intent(android.content.Intent.ACTION_VIEW)
-                            .setDataAndType(uri, "image/png")
+                            .setDataAndType(uri, mime)
                             .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                             .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION),
                     )
                 }
             },
         ) {
-            Icon(Icons.Filled.Check, contentDescription = "View saved image", tint = GoldPrimary, modifier = Modifier.size(16.dp))
+            Icon(Icons.Filled.Visibility, contentDescription = "View saved output", tint = GoldPrimary, modifier = Modifier.size(16.dp))
         }
         IconButton(
             modifier = Modifier.size(28.dp),
@@ -476,7 +599,7 @@ private fun AutoSavedRow(
                     context.startActivity(
                         android.content.Intent.createChooser(
                             android.content.Intent(android.content.Intent.ACTION_SEND)
-                                .setType("image/png")
+                                .setType(mime)
                                 .putExtra(android.content.Intent.EXTRA_STREAM, uri)
                                 .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION),
                             "Share AI output",

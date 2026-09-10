@@ -22,7 +22,7 @@ class VisionEngine(
     private val errors: VisionErrorAggregator = VisionErrorAggregator(),
 ) : VisionCapability, ErrorHandler by errors {
     override suspend fun process(context: VisionInput): VisionAnalysis = try {
-        val observation = inspector.inspect(com.waheed.artificerx.ai.vision.VisionFrame(context.bitmap))
+        val observation = inspector.inspect(com.waheed.artificerx.ai.vision.VisionFrame(context.bitmap, com.waheed.artificerx.ai.vision.VisionSource.IMPORT))
         VisionAnalysis(
             observation = observation,
             summary = "scene=${observation.sceneType}; objects=${observation.objects.size}; composition=${"%.3f".format(observation.compositionScore)}",

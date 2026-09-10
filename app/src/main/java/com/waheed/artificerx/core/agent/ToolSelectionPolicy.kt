@@ -9,7 +9,8 @@ import com.waheed.artificerx.core.network.ToolDefinitionDto
  * safety/continuity tools required to complete work and return real artifacts.
  */
 object ToolSelectionPolicy {
-    private const val MAX_TOOLS = Int.MAX_VALUE
+    private const val MAX_TOOLS = 96
+    private const val MAX_COMMON_TOOLS = 32
 
     private val alwaysAvailable = setOf(
         "finish_turn", "remember", "recall", "create_file", "create_zip", "invoke_builtin_recipe", "search_builtin_recipes",
@@ -22,7 +23,7 @@ object ToolSelectionPolicy {
         val route = AgentIntentRouter.route(normalized)
         if (maxTools <= 0) return emptyList()
         val all = ToolRegistry.ALL_TOOLS
-        val common = all.filter { it.function.name in alwaysAvailable || it.function.name.startsWith("runtime_") }.take(maxTools)
+        val common = all.filter { it.function.name in alwaysAvailable || it.function.name.startsWith("runtime_") }.take(minOf(maxTools, MAX_COMMON_TOOLS))
         val scored = all.asSequence()
             .filterNot { it.function.name in alwaysAvailable }
             .map { tool -> tool to score(tool, normalized, route.kind.name.lowercase()) }

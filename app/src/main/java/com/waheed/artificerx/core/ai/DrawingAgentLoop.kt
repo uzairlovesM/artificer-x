@@ -1,57 +1,38 @@
 package com.waheed.artificerx.core.ai
 
 import android.graphics.Bitmap
-import android.util.Log
-import com.waheed.artificerx.core.agent.Callback
-import com.waheed.artificerx.core.runtime.NetworkManager
-import kotlinx.coroutines.*
-import java.util.*
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.Canvas
+import com.waheed.artificerx.ai.drawing.BrushEngine
+import com.waheed.artificerx.ai.ai.common.DrawingContext
+import com.waheed.artificerx.ai.drawing.StrokePathCapability
+import kotlinx.coroutines.CancellationException
 
+/**
+ * Small, dependency-light drawing agent loop. It applies a validated intent to the live
+ * bitmap instead of referencing speculative pipeline/capability classes.
+ */
 class DrawingAgentLoop {
-    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-    private val networkManager: NetworkManager
-
-    constructor(networkManager: NetworkManager) {
-        this.networkManager = networkManager
-    }
-
-    suspend fun processDrawingIntent(intent: DrawingIntent, baseImage: Bitmap, callback: Callback<Bitmap>) = coroutineScope {
-        try {
-            // Scene parsing phase
-            val sceneParser = ParseSceneCapability(networkManager)
-            val sceneGraph = sceneParser.parseScene(baseImage, com.waheed.artificerx.core.ai.ReasoningEngine.AgentConfig(
-                strategy = com.waheed.artificerx.core.ai.ReasoningEngine.ProcessingStrategy.LocalOptimized,
-                maxProcessingTimeMs = 5000,
-                qualityThreshold = 0.75f,
-                retryCount = 2,
-                enableLogging = true
-            ))
-
-            if (sceneGraph == null) {
-                throw ProcessingException("Scene parsing failed")
+    suspend fun execute(intent: DrawingIntent): Result<Bitmap> {
+        return try {
+            val bitmap = intent.baseImage.copy(Bitmap.Config.ARGB_8888, true)
+            if (intent.paths.isEmpty()) return Result.success(bitmap)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = intent.size.coerceAtLeast(0.5f)
+                color = intent.color
+                alpha = (intent.opacity.coerceIn(0f, 1f) * 255f).toInt()
+                strokeCap = Paint.Cap.ROUND
+                strokeJoin = Paint.Join.ROUND
             }
-
-            // Drawing pipeline with multi-capability coordination
-            val drawingPipeline = DrawingPipelineBuilder()
-            val drawingPipelineResult = drawingPipeline.buildPipeline {
-                sceneGraph
-            }.processScene(sceneGraph)
-
-            // Final artwork generation
-            val finalArtwork = RepairDrawingCapability().fixArtifacts(baseImage, sceneGraph)
-            callback.onSuccess(finalArtwork)
-        } catch (e: CancellationException) {
-            callback.onFailure(e)
-            throw e
-        } catch (e: Exception) {
-            DebugLogger.e("DrawingAgentLoop", "Drawing pipeline failed", e)
-            callback.onFailure(e)
-            throw e
+            Canvas(bitmap).apply { intent.paths.forEach { drawPath(it, paint) } }
+            Result.success(bitmap)
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (t: Throwable) {
+            Result.failure(t)
         }
-    }
-
-    fun cancelProcessing() {
-        scope.cancelAllChildren()
-        Log.d("DrawingAgentLoop", "All processing jobs cancelled")
     }
 }

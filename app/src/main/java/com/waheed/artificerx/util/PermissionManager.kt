@@ -37,4 +37,9 @@ class PermissionManager @Inject constructor(
     fun manageAllFilesIntent(): Intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
         data = Uri.parse("package:${appContext.packageName}")
     }
+    companion object {
+        fun manageAllFilesIntent(context: Context): Intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+            data = Uri.parse("package:${context.packageName}")
+        }
+    }
 }

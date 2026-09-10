@@ -6,6 +6,9 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverters
 import com.waheed.artificerx.util.ImageBitmapRoom
+import androidx.room.Index
+import android.graphics.Bitmap
+import java.util.UUID
 
 @Keep // Prevent Room from stripping the class
 @Entity(tableName = "project_assets", indices = [Index(value = ["assetId"], unique = true)])

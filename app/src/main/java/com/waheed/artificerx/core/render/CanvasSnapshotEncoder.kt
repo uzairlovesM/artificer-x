@@ -21,11 +21,11 @@ class CanvasSnapshotEncoder
     constructor() {
         fun encodeForVisionFeedback(
             bitmap: Bitmap,
-            maxDimensionPx: Int = 768,
+            maxDimensionPx: Int = 640,
         ): String {
             val scaled = downscaleIfNeeded(bitmap, maxDimensionPx)
             val outputStream = ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.PNG, 90, outputStream)
+            scaled.compress(Bitmap.CompressFormat.JPEG, 82, outputStream)
             val bytes = outputStream.toByteArray()
             if (scaled !== bitmap) scaled.recycle()
             return Base64.encodeToString(bytes, Base64.NO_WRAP)

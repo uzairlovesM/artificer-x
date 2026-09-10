@@ -14,7 +14,7 @@ open class MultiModalEngine(
     private val inspector: VisionInspector = VisionInspector(),
 ) : DrawingCapability {
     override suspend fun process(context: DrawingContext): DrawingResult {
-        val observation = inspector.inspect(com.waheed.artificerx.ai.vision.VisionFrame(context.baseImage))
+        val observation = inspector.inspect(com.waheed.artificerx.ai.vision.VisionFrame(context.baseImage, com.waheed.artificerx.ai.vision.VisionSource.CANVAS))
         val output = context.baseImage.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(output)
         val quality = observation.compositionScore.coerceIn(0f, 1f)

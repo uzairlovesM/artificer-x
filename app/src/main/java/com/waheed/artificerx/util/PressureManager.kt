@@ -1,40 +1,32 @@
 package com.waheed.artificerx.util
 
+import android.content.Context
+import android.hardware.SensorManager
 import android.util.Log
-import java.util.concurrent.*
 
-class PressureManager {
-    private val executor = Executors.newFixedThreadPool(4)
+class PressureManager(context: Context? = null) {
+    private val sensorManager = context?.getSystemService(SensorManager::class.java)
     private var currentPressureLevel = 0.5f
 
     fun readPressureSensors(): SensorData {
-        return try {
-            // Simulated pressure sensor reading
-            val pressureData = executor.submit(Callable { readAndroidPressureSensors() }).get(2, TimeUnit.SECONDS)
-            pressureData
-        } catch (e: Exception) {
-            Log.e("PressureManager", "Pressure sensor failure: ${e.message}")
-            SensorData(
-                pressureLevel = currentPressureLevel,
-                stabilityScore = 0.0f,
-                temperature = 25.0f
-            )
-        }
+        val pressureSensor = sensorManager?.getDefaultSensor(android.hardware.Sensor.TYPE_PRESSURE)
+        val available = pressureSensor != null
+        return SensorData(
+            pressureLevel = currentPressureLevel,
+            stabilityScore = if (available) 1f else 0f,
+            temperature = 25f,
+        )
     }
 
     fun registerPressureCallback(callback: (Float) -> Unit) {
-        // Real-time pressure monitoring
-        executor.submit { callback(currentPressureLevel) }.run()
+        callback(currentPressureLevel)
     }
 
-    fun dispose() {
-        executor.shutdownNow()
-        Log.d("PressureManager", "Pressure monitoring stopped")
-    }
+    fun dispose() = Unit
 
     data class SensorData(
         val pressureLevel: Float,
         val stabilityScore: Float,
-        val temperature: Float
+        val temperature: Float,
     )
 }

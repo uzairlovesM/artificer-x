@@ -128,7 +128,11 @@ class AgentOrchestrator
                 if (chatProfile?.providerId != null) {
                     providers = providers.sortedByDescending { it.id == chatProfile.providerId }
                 }
-                if (chatProfile?.modelId != null) {
+                if (chatProfile?.modelId != null && chatProfile.providerId != null) {
+                    providers = providers.map { provider ->
+                        if (provider.id == chatProfile.providerId) provider.copy(defaultModelId = chatProfile.modelId) else provider
+                    }
+                } else if (chatProfile?.modelId != null && providers.size == 1) {
                     providers = providers.map { it.copy(defaultModelId = chatProfile.modelId) }
                 }
                 if (providers.isEmpty()) {
@@ -182,9 +186,24 @@ class AgentOrchestrator
                 val selectedRole = agentPlanner.selectRole(userText, is3DMode)
                 val worldModel = if (projectId != null) worldModelStore.get(projectId) else null
 
+                // Automatic research bridge for explicit research requests. This makes web
+                // search/fetch deterministic instead of depending entirely on the model
+                // deciding to call the tools. It remains selective to avoid unnecessary
+                // network calls on ordinary chat turns.
+                val researchContext = fetchAutomaticResearchIfRequested(userText) { event -> emit(event) }
+
                 val systemMessage = systemPromptMessage(selectedRole, worldModel, agentSettings, AgentIntentRouter.route(userText), artifactIntent)
+                val systemMessageWithResearch = if (researchContext.isNullOrBlank()) {
+                    systemMessage
+                } else {
+                    ChatMessageDto(
+                        role = "system",
+                        contentText = systemMessage.contentText.orEmpty() +
+                            "\n\nLIVE WEB RESEARCH ALREADY COLLECTED BY ARTIFICER-X:\n" + researchContext,
+                    )
+                }
                 val compiledContext = AgentContextCompiler.compile(
-                    system = systemMessage,
+                    system = systemMessageWithResearch,
                     history = conversationHistory,
                     user = userTurnMessage(userText, attachedImageBase64),
                     // No application-side context truncation. Provider/model context remains
@@ -220,19 +239,35 @@ class AgentOrchestrator
                     // emits a real AgentEvent.AgentTextChunk per SSE delta
                     // as it arrives over the socket, not one fake chunk
                     // containing the whole finished reply.
+                    val requestMessages = AgentContextCompiler.trimForProvider(messages, providerContextCharacterBudget(provider))
                     val turnResult: TurnCallResult? =
                         if (provider.type == com.waheed.artificerx.domain.model.AiProviderType.LOCAL_GGUF) {
-                            val response = callProvider(provider, messages, userText, effectiveTemperature.toDouble())
+                            val response = callProvider(provider, requestMessages, userText, effectiveTemperature.toDouble())
                             val message = response?.choices?.firstOrNull()?.message
                             if (message?.contentText?.isNotBlank() == true) {
                                 emit(AgentEvent.AgentTextChunk(message.contentText))
                             }
                             response?.let { TurnCallResult(message, it.choices.firstOrNull()?.finishReason) }
                         } else {
-                            streamCloudProvider(provider, messages, userText, effectiveTemperature.toDouble(), agentSettings.reasoningEffort) { event -> emit(event) }
+                            streamCloudProvider(provider, requestMessages, userText, effectiveTemperature.toDouble(), agentSettings.reasoningEffort, safeMode = false) { event -> emit(event) }
                         }
 
-                    if (turnResult == null || turnResult.message == null) {
+                    var resolvedTurnResult = turnResult
+                    if (resolvedTurnResult == null && provider.type != com.waheed.artificerx.domain.model.AiProviderType.LOCAL_GGUF) {
+                        // Retry the same provider once with optional tool/reasoning fields removed.
+                        // A valid key plus a gateway/schema incompatibility must not masquerade as
+                        // a dead provider. The normal path still uses the full tool-enabled request.
+                        resolvedTurnResult = streamCloudProvider(
+                            provider = provider,
+                            messages = AgentContextCompiler.trimForProvider(messages, providerContextCharacterBudget(provider)),
+                            userText = userText,
+                            temperature = effectiveTemperature.toDouble(),
+                            reasoningEffort = null,
+                            safeMode = true,
+                        ) { event -> emit(event) }
+                    }
+
+                    if (resolvedTurnResult == null || resolvedTurnResult.message == null) {
                         if (providerIndex + 1 < providers.size) {
                             emit(
                                 AgentEvent.ProviderFallback(
@@ -251,7 +286,7 @@ class AgentOrchestrator
 
                     providerConfigRepository.incrementUsage(provider.toRecordShapeForUsage())
 
-                    val assistantMessage = turnResult.message
+                    val assistantMessage = resolvedTurnResult.message
                     messages.add(assistantMessage)
 
                     val toolCalls = assistantMessage.toolCalls
@@ -320,12 +355,21 @@ class AgentOrchestrator
                             } else if (parsed is ParsedToolCall.WebSearch) {
                                 executeWebSearch(parsed)
                             } else {
-                                withContext(Dispatchers.Main.immediate) {
-                                    if (studioViewModel != null) {
-                                        toolExecutor.execute(parsed, studioViewModel)
-                                    } else {
-                                        toolExecutor.executeSculptOnly(parsed)
+                                try {
+                                    withContext(Dispatchers.Main.immediate) {
+                                        if (studioViewModel != null) {
+                                            toolExecutor.execute(parsed, studioViewModel)
+                                        } else {
+                                            toolExecutor.executeSculptOnly(parsed)
+                                        }
                                     }
+                                } catch (cancel: kotlinx.coroutines.CancellationException) {
+                                    throw cancel
+                                } catch (error: Throwable) {
+                                    ToolExecutionResult.Failure(
+                                        "Tool ${toolCall.function.name} crashed safely: ${error.message ?: error::class.simpleName ?: "unknown"}. " +
+                                            "The agent may repair or retry without losing the turn.",
+                                    )
                                 }
                             }
 
@@ -407,12 +451,16 @@ class AgentOrchestrator
 
                     if (snapshotRequestedThisRound && !finished) {
                         val snapshotBitmap =
-                            withContext(Dispatchers.Main.immediate) {
-                                snapshotProvider.captureSnapshot()
+                            try {
+                                withContext(Dispatchers.Main.immediate) { snapshotProvider.captureSnapshot() }
+                            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                                throw cancel
+                            } catch (_: Throwable) {
+                                null
                             }
                         if (snapshotBitmap != null) {
-                            val snapshotBase64 = snapshotEncoder.encodeForVisionFeedback(snapshotBitmap)
-                            messages.add(visionFeedbackMessage(snapshotBase64))
+                            runCatching { snapshotEncoder.encodeForVisionFeedback(snapshotBitmap) }
+                                .onSuccess { snapshotBase64 -> messages.add(visionFeedbackMessage(snapshotBase64)) }
                         }
                     }
                 }
@@ -421,6 +469,68 @@ class AgentOrchestrator
                     emit(AgentEvent.MaxIterationsReached)
                 }
             }.flowOn(Dispatchers.IO)
+
+        private suspend fun fetchAutomaticResearchIfRequested(
+            userText: String,
+            emit: suspend (AgentEvent) -> Unit,
+        ): String? {
+            val q = userText.trim()
+            val lower = q.lowercase()
+            val requested = listOf(
+                "search the web", "web search", "search online", "research",
+                "look up", "latest information", "latest research", "find sources",
+                "fetch this", "open this url", "source", "citations",
+            ).any(lower::contains) || Regex("https?://\\S+").containsMatchIn(q)
+            if (!requested) return null
+
+            val searchCallId = "auto_web_search_${System.nanoTime()}"
+            emit(AgentEvent.ToolCallStarted(searchCallId, "web_search", q.take(180)))
+            val search = webSearcher.search(q.take(700), maxResults = 5)
+            if (search !is com.waheed.artificerx.core.web.WebSearchResult.Success) {
+                emit(AgentEvent.ToolCallFailed(searchCallId, when (search) {
+                    is com.waheed.artificerx.core.web.WebSearchResult.NetworkError -> search.message
+                    is com.waheed.artificerx.core.web.WebSearchResult.NoResults -> "No results"
+                    else -> "Web search failed"
+                }))
+                return when (search) {
+                    is com.waheed.artificerx.core.web.WebSearchResult.NetworkError -> "Web search unavailable: ${search.message}"
+                    is com.waheed.artificerx.core.web.WebSearchResult.NoResults -> "No web results were found for the request."
+                    else -> null
+                }
+            }
+            emit(AgentEvent.ToolCallSucceeded(searchCallId, "Automatic web search returned ${search.results.size} result(s)"))
+            val lines = search.results.mapIndexed { index, item ->
+                "${index + 1}. ${item.title}\nURL: ${item.url}\nSnippet: ${item.snippet}"
+            }.toMutableList()
+            val first = search.results.firstOrNull()
+            if (first != null) {
+                val fetchCallId = "auto_web_fetch_${System.nanoTime()}"
+                emit(AgentEvent.ToolCallStarted(fetchCallId, "web_fetch", first.url.take(220)))
+                when (val fetched = htmlFetcher.fetch(first.url)) {
+                    is com.waheed.artificerx.core.web.WebFetchResult.Success -> {
+                        lines += "FETCHED SOURCE: ${fetched.title ?: first.title}\nURL: ${fetched.url}\n${fetched.readableText.take(9000)}"
+                        emit(AgentEvent.ToolCallSucceeded(fetchCallId, "Fetched ${fetched.url}"))
+                    }
+                    is com.waheed.artificerx.core.web.WebFetchResult.HttpError -> {
+                        lines += "FETCH FAILED: HTTP ${fetched.statusCode} ${fetched.message}"
+                        emit(AgentEvent.ToolCallFailed(fetchCallId, "HTTP ${fetched.statusCode}: ${fetched.message}"))
+                    }
+                    is com.waheed.artificerx.core.web.WebFetchResult.NetworkError -> {
+                        lines += "FETCH FAILED: ${fetched.message}"
+                        emit(AgentEvent.ToolCallFailed(fetchCallId, fetched.message))
+                    }
+                    is com.waheed.artificerx.core.web.WebFetchResult.ExtractionFailed -> {
+                        lines += "FETCH EXTRACT FAILED: ${fetched.message}"
+                        emit(AgentEvent.ToolCallFailed(fetchCallId, fetched.message))
+                    }
+                    is com.waheed.artificerx.core.web.WebFetchResult.Blocked -> {
+                        lines += "FETCH BLOCKED: ${fetched.reason}"
+                        emit(AgentEvent.ToolCallFailed(fetchCallId, fetched.reason))
+                    }
+                }
+            }
+            return lines.joinToString("\n\n")
+        }
 
         private suspend fun collectAgentSettings(): com.waheed.artificerx.data.local.datastore.AgentSettings =
             agentSettingsDataStore.settings.first()
@@ -502,6 +612,58 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
                 short summary. Never describe what you would create in plain
                 text instead of calling a tool — plain text alone produces
                 nothing on the canvas or in the scene.
+
+                RELIABILITY / RECOVERY RULES:
+                1. Keep provider failures separate from tool failures. A canvas tool throwing an exception does not mean the API key, model or provider is invalid.
+                2. When a tool returns an error, treat it as repairable state first. Inspect the returned error, correct arguments/state, and retry once when safe.
+                3. After resize_canvas, query/inspect the new canvas state before drawing coordinates based on the old dimensions. Never end the turn solely because a resize occurred.
+                4. Never reuse a provider-specific model identifier on another provider unless that provider explicitly supports that exact identifier.
+                5. Preserve useful partial work. A later provider failure must not erase already-successful canvas mutations.
+                6. For web research, distinguish search snippets, fetched page text, and your own synthesis. Preserve source URLs for citations.
+                7. For generated files/images/archives, verify the concrete artifact path or URI returned by the tool before reporting success.
+                8. Before finish_turn, verify: requested format, canvas dimensions, important layers, executed tools, failed/repaired tools, and produced artifacts.
+                9. User-facing reasoning must be a concise execution summary. Do not expose hidden private chain-of-thought; report decisions, actions, evidence and results instead.
+                10. Continue after recoverable errors. Only terminate the turn when there is no viable provider/tool path, the user stopped it, or the safety/iteration budget is actually exhausted.
+                11. PROVIDER DIAGNOSTICS: distinguish authentication, model-not-found, rate-limit, timeout, invalid-request/schema, context overflow, tool-schema rejection, and network failure. Never collapse these into one generic failure.
+                12. REQUEST MINIMALITY: the app has a large tool catalog, but attach only the tools relevant to the current intent. Full catalog capability is available through routing, not by bloating every single request.
+                13. RESIZE RECOVERY: after resize_canvas succeeds, immediately inspect the new dimensions, remap all future coordinates, and continue. Resize is a state transition, not a successful stopping condition.
+                14. ARTIFACT-FIRST OUTPUT: when the user asks to create, draw, export, save, generate, modify, or preview something, create the real artifact through the appropriate tool. Textual narration is not a substitute.
+                15. VERIFICATION: after producing an artifact, verify existence, type/MIME, path/URI, dimensions where applicable, and basic integrity before reporting success.
+                16. WEB PROVENANCE: research requests require real web_search and, where useful, web_fetch. Keep source URLs distinct from your own synthesis and never invent citations.
+                17. EFFORT CONTROL: Thinking and effort controls are real request parameters when the selected provider supports them. They must never be used to expose private chain-of-thought.
+                18. TOOL FAILURE: a failed tool is local damage, not provider death. Inspect the error, repair arguments/state when possible, retry once when safe, then continue with unaffected work.
+                19. PARTIAL SUCCESS: preserve every successful mutation and artifact even when later work fails. Report succeeded and failed operations separately.
+                20. FINAL RESPONSE: summarize executed actions, key decisions, verification evidence, web sources used, artifacts produced, and remaining limitations. Never describe an unexecuted plan as completed work.
+                21. STATE BEFORE ACTION: inspect the current project/canvas/scene before destructive or coordinate-sensitive changes. Do not assume the state from an earlier turn is still current.
+                22. COORDINATE DISCIPLINE: treat canvas width, height, scale, translation, rotation and layer transforms as live state. Recalculate geometry after every resize or transform.
+                23. DRAWING ORDER: establish background and major masses before fine details. Do not spend tool calls on micro-details while the silhouette, perspective, value structure or composition is still broken.
+                24. LAYER SEMANTICS: prefer named, independently editable layers for visually distinct materials, lighting groups, line art, shadows, highlights and effects.
+                25. NONDESTRUCTIVE EDITING: prefer a new layer, mask, selection or transform over permanently destroying pixels when the requested result can be achieved non-destructively.
+                26. IMAGE QUALITY: avoid needless full-resolution snapshots in feedback loops. Use compact vision feedback and preserve the full-resolution canvas as the source of truth.
+                27. VISION INPUT: compress oversized reference images before sending them to remote models. Preserve aspect ratio and do not claim to have inspected an image that was not actually sent successfully.
+                28. TOOL ARGUMENTS: generate strict JSON matching the tool schema. Never add undocumented fields, omit required fields, or pass prose where structured values are required.
+                29. TOOL RETRIES: retry the exact same operation only when the failure is plausibly transient. When the error is validation-related, change the arguments rather than blindly repeating the same request.
+                30. PROVIDER RETRIES: a 4xx schema/model error is not evidence that the API key is wrong. Diagnose the response body and retry in a compatibility-safe mode before changing provider.
+                31. RATE LIMITS: on 429/rate-limit signals, respect the provider's retry guidance when available and move to another configured provider rather than hammering the exhausted endpoint.
+                32. AUTH ERRORS: on a true 401/403, do not repeatedly retry the same credential. Surface an actionable credential/provider message and use another valid provider when available.
+                33. CONTEXT PRESSURE: preserve system instructions, the latest user intent, recent tool results and the newest visual state first. Older conversational text is expendable when context is tight.
+                34. OUTPUT PRESSURE: never invent an “unlimited” provider capability. Generate until the provider or safety budget ends, then continue cleanly when the stop reason is a recoverable output boundary.
+                35. MULTIMODAL TRUTH: distinguish image understanding from image generation. A vision model can inspect an image, but actual artwork output must come from the canvas/artifact tools unless an explicit image-generation tool is invoked.
+                36. FILE TRUTH: a file name, path, URI or intended save location is not proof of existence. Verify the write result before surfacing a download/share action.
+                37. ZIP TRUTH: a ZIP is complete only after the archive tool returns success. Do not infer success from input entries alone.
+                38. WEB TRUTH: snippets are leads, fetched pages are evidence, and your answer is synthesis. Keep these three layers separate.
+                39. SOURCE FRESHNESS: for “latest/current/today” requests, perform fresh web retrieval instead of relying on memory or stale conversation content.
+                40. CITATIONS: cite only sources actually retrieved or supplied. Never fabricate a source title, URL, quote, or publication date.
+                41. SUMMARY QUALITY: the user-visible summary should describe goal, executed tools, successful/failed actions, evidence, produced artifacts, web sources, and final status. Do not reveal hidden private reasoning traces.
+                42. USER CONTROL: Stop means stop. Cancellation must propagate through network, tool, snapshot and local inference operations rather than being swallowed by generic exception handlers.
+                43. RECOVERY AFTER STOP: if the user cancels, preserve already-successful work and mark the turn as stopped instead of converting cancellation into provider failure.
+                44. VISUAL CRITIQUE: when the canvas looks weak, identify the concrete defect class first (proportion, silhouette, perspective, value, edge, color, depth or detail), then choose the smallest tool sequence that repairs it.
+                45. TOOL ECONOMY: do not call tools simply to appear active. Every tool call should move the artifact, evidence, context, or verification state forward.
+                46. NO PLACEHOLDERS: never satisfy a user request with a fake preview, fake success state, dummy artifact, invented web result, or placeholder tool output.
+                47. MEMORY HYGIENE: save durable preferences or project facts only when useful for future turns. Do not turn transient implementation chatter into permanent memory.
+                48. CROSS-TURN CONTINUITY: use project state, stored artifacts, recent tool results and persistent memory to continue unfinished work instead of starting from a fictional blank canvas.
+                49. FAILURE LANGUAGE: explain the narrowest true failure reason. Prefer “tool argument invalid” or “provider returned HTTP 400” to “AI failed” when the evidence supports the narrower diagnosis.
+                50. COMPLETION CRITERIA: completion means the requested state exists and has been verified, not merely that the model produced a confident sentence describing it.
                 """.trimIndent()
 
             // v0.4.30 Deep Studio mode: this is the actual difference
@@ -653,13 +815,13 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
          *  verify the effect of its last tool call(s) before deciding what
          *  to do next — this is what makes self-correction (Section 36)
          *  possible without a diffusion model in the loop. */
-        private fun visionFeedbackMessage(base64Png: String): ChatMessageDto =
+        private fun visionFeedbackMessage(base64Jpeg: String): ChatMessageDto =
             ChatMessageDto(
                 role = "user",
                 contentParts =
                     listOf(
                         ContentPartDto(type = "text", text = "Here is the current canvas after your last action:"),
-                        ContentPartDto(type = "image_url", imageUrl = ImageUrlDto(url = "data:image/png;base64,$base64Png")),
+                        ContentPartDto(type = "image_url", imageUrl = ImageUrlDto(url = "data:image/jpeg;base64,$base64Jpeg")),
                     ),
             )
 
@@ -784,12 +946,30 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
          *  coroutine (where calling the passed-in `emit` lambda is legal),
          *  is the correct/safe bridge between "blocking network read" and
          *  "cooperative Flow emission" for exactly this situation. */
+        private fun providerContextCharacterBudget(provider: AiProviderConfig): Int =
+            when (provider.type) {
+                com.waheed.artificerx.domain.model.AiProviderType.GROQ -> 440_000
+                com.waheed.artificerx.domain.model.AiProviderType.OPENROUTER -> 680_000
+                com.waheed.artificerx.domain.model.AiProviderType.CLOUDFLARE_WORKERS_AI -> 430_000
+                com.waheed.artificerx.domain.model.AiProviderType.CUSTOM -> 240_000
+                com.waheed.artificerx.domain.model.AiProviderType.LOCAL_GGUF -> 96_000
+            }
+
+        private fun providerSupportsReasoningEffort(provider: AiProviderConfig): Boolean =
+            when (provider.type) {
+                com.waheed.artificerx.domain.model.AiProviderType.GROQ,
+                com.waheed.artificerx.domain.model.AiProviderType.OPENROUTER,
+                -> true
+                else -> false
+            }
+
         private suspend fun streamCloudProvider(
             provider: AiProviderConfig,
             messages: List<ChatMessageDto>,
             userText: String,
             temperature: Double,
             reasoningEffort: String?,
+            safeMode: Boolean,
             emit: suspend (AgentEvent) -> Unit,
         ): TurnCallResult? {
             val rawKey = providerConfigRepository.rawKeyFor(provider.keyAlias) ?: return null
@@ -799,11 +979,11 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
                 ChatCompletionRequest(
                     model = modelId,
                     messages = messages,
-                    tools = ToolSelectionPolicy.select(userText),
+                    tools = if (safeMode) null else ToolSelectionPolicy.select(userText),
                     temperature = temperature,
                     maxTokens = null,
                     stream = true,
-                    reasoningEffort = reasoningEffort,
+                    reasoningEffort = if (providerSupportsReasoningEffort(provider)) reasoningEffort else null,
                 )
             val bodyJson = json.encodeToString(ChatCompletionRequest.serializer(), requestBody)
             val request =
@@ -822,7 +1002,8 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
                         try {
                             call.execute().use { response ->
                                 if (!response.isSuccessful) {
-                                    trySend(StreamEvent.Failed("HTTP ${response.code}"))
+                                    val errorBody = response.body?.string()?.take(1200).orEmpty()
+                                    trySend(StreamEvent.Failed("HTTP ${response.code}${if (errorBody.isNotBlank()) ": $errorBody" else ""}"))
                                     return@use
                                 }
                                 val source = response.body?.source()
@@ -865,6 +1046,7 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
             val toolAccumulators = sortedMapOf<Int, ToolCallAccumulator>()
             var finishReason: String? = null
             var hadHardFailure = false
+            var lastStreamError: String? = null
 
             events.collect { streamEvent ->
                 when (streamEvent) {
@@ -880,11 +1062,14 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
                         streamEvent.delta.function?.arguments?.let { acc.argumentsBuilder.append(it) }
                     }
                     is StreamEvent.Finished -> finishReason = streamEvent.reason
-                    is StreamEvent.Failed -> hadHardFailure = true
+                    is StreamEvent.Failed -> { hadHardFailure = true; lastStreamError = streamEvent.reason }
                 }
             }
 
-            if (hadHardFailure && textBuilder.isEmpty() && toolAccumulators.isEmpty()) return null
+            if (hadHardFailure && textBuilder.isEmpty() && toolAccumulators.isEmpty()) {
+                emit(AgentEvent.Error("${provider.displayName} request failed: ${lastStreamError ?: "unknown stream error"}", isFatal = false))
+                return null
+            }
 
             val toolCallDtos =
                 toolAccumulators.entries
@@ -1008,7 +1193,7 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
          */
         private fun defaultModelFor(provider: AiProviderConfig): String =
             when {
-                provider.baseUrl.contains("groq", ignoreCase = true) -> "qwen/qwen3.6-27b"
+                provider.baseUrl.contains("groq", ignoreCase = true) -> "qwen/qwen3.8-27b"
                 provider.baseUrl.contains("openrouter", ignoreCase = true) -> "openrouter/free"
                 provider.baseUrl.contains("cloudflare", ignoreCase = true) -> "@cf/meta/llama-3.2-11b-vision-instruct"
                 else -> "gpt-4o-mini"

@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -45,6 +46,8 @@ data class AgentSettings(
     val qualityPreset: QualityPreset = QualityPreset.BALANCED,
     val customMaxIterations: Int? = null,
     val customTemperature: Float? = null,
+    val thinkingEnabled: Boolean = false,
+    val reasoningEffortOverride: String? = null,
 ) {
     val effectiveMaxIterations: Int get() = customMaxIterations ?: qualityPreset.maxIterations
     val effectiveTemperature: Float get() = customTemperature ?: qualityPreset.temperature
@@ -70,7 +73,7 @@ data class AgentSettings(
      *  every other preset so providers that reject an unrecognized
      *  field for models that don't support it aren't sent one
      *  needlessly. */
-    val reasoningEffort: String? get() = if (qualityPreset == QualityPreset.DEEP_STUDIO) "high" else null
+    val reasoningEffort: String? get() = reasoningEffortOverride ?: if (thinkingEnabled || qualityPreset == QualityPreset.DEEP_STUDIO) "high" else null
 }
 
 /**
@@ -89,6 +92,8 @@ class AgentSettingsDataStore
         private val presetKey = stringPreferencesKey("quality_preset")
         private val customMaxIterKey = intPreferencesKey("custom_max_iterations")
         private val customTempKey = floatPreferencesKey("custom_temperature")
+        private val thinkingKey = booleanPreferencesKey("thinking_enabled")
+        private val effortKey = stringPreferencesKey("reasoning_effort")
 
         val settings: Flow<AgentSettings> =
             context.agentSettingsDataStore.data.map { prefs ->
@@ -99,6 +104,8 @@ class AgentSettingsDataStore
                         }.getOrDefault(QualityPreset.BALANCED),
                     customMaxIterations = prefs[customMaxIterKey],
                     customTemperature = prefs[customTempKey],
+                    thinkingEnabled = prefs[thinkingKey] ?: false,
+                    reasoningEffortOverride = prefs[effortKey],
                 )
             }
 
@@ -110,7 +117,17 @@ class AgentSettingsDataStore
             }
         }
 
-        suspend fun setCustomOverrides(
+        suspend fun setThinkingEnabled(enabled: Boolean) {
+        context.agentSettingsDataStore.edit { prefs -> prefs[thinkingKey] = enabled }
+    }
+
+    suspend fun setReasoningEffort(effort: String?) {
+        context.agentSettingsDataStore.edit { prefs ->
+            if (effort.isNullOrBlank()) prefs.remove(effortKey) else prefs[effortKey] = effort
+        }
+    }
+
+    suspend fun setCustomOverrides(
             maxIterations: Int?,
             temperature: Float?,
         ) {
