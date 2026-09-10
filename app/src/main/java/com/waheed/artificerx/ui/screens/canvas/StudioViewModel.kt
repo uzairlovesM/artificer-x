@@ -3,6 +3,7 @@ package com.waheed.artificerx.ui.screens.canvas
 import com.waheed.artificerx.core.art.RulerEngine
 import com.waheed.artificerx.core.art.AnimationFrameStore
 import com.waheed.artificerx.core.art.MangaLayoutStore
+import com.waheed.artificerx.core.art.AdvancedStrokeProcessor
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -304,7 +305,8 @@ class StudioViewModel
         fun setLayerOpacity(
             layerId: String,
             opacity: Float,
-        ) {
+        )
+        private val strokeProcessor = AdvancedStrokeProcessor() {
             _state.update { current ->
                 current.copy(
                     layers =
@@ -345,9 +347,15 @@ class StudioViewModel
             bitmapStore.ensureLayer(activeLayerId, current.canvasWidthPx, current.canvasHeightPx)
             bitmapStore.pushUndoSnapshot()
 
+            val processed = strokeProcessor.process(
+                points = points,
+                smoothing = current.toolState.brushSmoothing,
+                spacing = current.toolState.brushSpacing,
+            )
+            val workingPoints = processed.points
             val isEraser = current.toolState.activeTool == DrawToolType.ERASER
             val variants =
-                mirrorPointsForSymmetryPublic(points, current.toolState.symmetryMode, current.canvasWidthPx, current.canvasHeightPx)
+                mirrorPointsForSymmetryPublic(workingPoints, current.toolState.symmetryMode, current.canvasWidthPx, current.canvasHeightPx)
 
             if (isEraser) {
                 variants.forEach { variant ->
@@ -357,8 +365,12 @@ class StudioViewModel
                 return
             }
 
-            val weights = pressureWeights?.takeIf { it.isNotEmpty() }
-                ?: if (current.toolState.pressureSimulationEnabled) simulatePressureWeights(points) else null
+            val baseWeights = pressureWeights?.takeIf { it.isNotEmpty() }
+                ?: if (current.toolState.pressureSimulationEnabled) simulatePressureWeights(workingPoints) else null
+            val weights = baseWeights?.map { weight ->
+                1f + (weight - 1f) * current.toolState.brushSizePressure
+            }
+            val effectiveOpacity = (current.toolState.brushOpacity * current.toolState.brushFlow).coerceIn(0f, 1f)
             variants.forEach { variant ->
                 if (activeLayer?.alphaLock == true) {
                     compositor.drawPathAlphaLocked(
@@ -366,7 +378,7 @@ class StudioViewModel
                         points = variant,
                         colorHex = current.toolState.brushColorHex,
                         strokeWidthPx = current.toolState.brushSizePx,
-                        opacity = current.toolState.brushOpacity,
+                        opacity = effectiveOpacity,
                         brushType = current.toolState.brushType,
                     )
                 } else {
@@ -375,7 +387,7 @@ class StudioViewModel
                         points = variant,
                         colorHex = current.toolState.brushColorHex,
                         strokeWidthPx = current.toolState.brushSizePx,
-                        opacity = current.toolState.brushOpacity,
+                        opacity = effectiveOpacity,
                         brushType = current.toolState.brushType,
                         pointWeights = weights,
                     )
@@ -668,6 +680,39 @@ class StudioViewModel
 
         fun setBrushType(type: com.waheed.artificerx.domain.model.BrushType) {
             _state.update { it.copy(toolState = it.toolState.copy(brushType = type)) }
+        }
+
+        fun setBrushOpacity(value: Float) {
+            _state.update { it.copy(toolState = it.toolState.copy(brushOpacity = value.coerceIn(0f, 1f))) }
+        }
+
+        fun setBrushHardness(value: Float) {
+            _state.update { it.copy(toolState = it.toolState.copy(brushHardness = value.coerceIn(0f, 1f))) }
+        }
+
+        fun setBrushFlow(value: Float) {
+            _state.update { it.copy(toolState = it.toolState.copy(brushFlow = value.coerceIn(0f, 1f))) }
+        }
+
+        fun setBrushSpacing(value: Float) {
+            _state.update { it.copy(toolState = it.toolState.copy(brushSpacing = value.coerceIn(0.01f, 1f))) }
+        }
+
+        fun setBrushSmoothing(value: Float) {
+            _state.update { it.copy(toolState = it.toolState.copy(brushSmoothing = value.coerceIn(0f, 1f))) }
+        }
+
+        fun setBrushScatter(value: Float) {
+            _state.update { it.copy(toolState = it.toolState.copy(brushScatter = value.coerceIn(0f, 1f))) }
+        }
+
+        fun setBrushPressureResponse(sizePressure: Float, opacityPressure: Float) {
+            _state.update { current ->
+                current.copy(toolState = current.toolState.copy(
+                    brushSizePressure = sizePressure.coerceIn(0f, 1f),
+                    brushOpacityPressure = opacityPressure.coerceIn(0f, 1f),
+                ))
+            }
         }
 
         fun setPressureSimulationEnabled(enabled: Boolean) {

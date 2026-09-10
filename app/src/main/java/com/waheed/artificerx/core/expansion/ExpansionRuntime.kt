@@ -8,4 +8,6 @@ object ExpansionRuntime {
     fun summary(): Map<String, Int> = all().groupingBy { it.area }.eachCount()
     fun failures(): List<CapabilityCheck> = health().filterNot { it.ready }
     fun readyCount(): Int = health().count { it.ready }
+
+    // Additional runtime health check methods could be added here
 }

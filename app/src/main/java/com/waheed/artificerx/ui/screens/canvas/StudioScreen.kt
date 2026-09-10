@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.Gradient
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Rectangle
 import androidx.compose.material.icons.filled.Redo
 import androidx.compose.material.icons.filled.Settings
@@ -68,6 +70,8 @@ import com.waheed.artificerx.ui.theme.QualityFail
 import com.waheed.artificerx.ui.theme.QualityWarn
 import com.waheed.artificerx.ui.theme.ToolCallChipShape
 import com.waheed.artificerx.ui.theme.glassSurface
+import com.waheed.artificerx.ui.components.AdvancedBrushDock
+import com.waheed.artificerx.ui.components.CanvasQuickBar
 
 /**
  * Main working surface (Section 111 Mobile UI). Structure:
@@ -100,6 +104,7 @@ fun StudioScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var isLayerPanelOpen by remember { mutableStateOf(false) }
+    var showCanvasGuides by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         StudioTopBar(
@@ -119,6 +124,18 @@ fun StudioScreen(
 
         Box(modifier = Modifier.weight(1f)) {
             val compositedBitmap by viewModel.compositedBitmap.collectAsStateWithLifecycle()
+            CanvasQuickBar(
+                widthPx = state.canvasWidthPx,
+                heightPx = state.canvasHeightPx,
+                layerCount = state.layers.size,
+                brushType = state.toolState.brushType,
+                brushSizePx = state.toolState.brushSizePx,
+                symmetryMode = state.toolState.symmetryMode,
+                guideVisible = showCanvasGuides,
+                onGuideToggle = { showCanvasGuides = !showCanvasGuides },
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
+
             CanvasRenderSurface(
                 bitmap = compositedBitmap,
                 widthPx = state.canvasWidthPx,
@@ -136,6 +153,7 @@ fun StudioScreen(
                 },
                 onTransformGestureStart = viewModel::beginTransformGesture,
                 onTransformGesture = viewModel::transformActiveLayer,
+                showGuides = showCanvasGuides,
             )
 
             // v0.4.30: appears only while a selection is active — Clear
@@ -190,9 +208,30 @@ fun StudioScreen(
             activeTool = state.toolState.activeTool,
             brushSize = state.toolState.brushSizePx,
             brushType = state.toolState.brushType,
+            opacity = state.toolState.brushOpacity,
+            hardness = state.toolState.brushHardness,
+            flow = state.toolState.brushFlow,
+            spacing = state.toolState.brushSpacing,
+            smoothing = state.toolState.brushSmoothing,
+            scatter = state.toolState.brushScatter,
+            sizePressure = state.toolState.brushSizePressure,
+            opacityPressure = state.toolState.brushOpacityPressure,
+            pressureSimulation = state.toolState.pressureSimulationEnabled,
+            symmetry = state.toolState.symmetryMode,
+            colorHex = state.toolState.brushColorHex,
             onToolSelected = viewModel::selectTool,
             onBrushSizeChanged = viewModel::setBrushSize,
             onBrushTypeSelected = viewModel::setBrushType,
+            onBrushOpacityChanged = viewModel::setBrushOpacity,
+            onBrushHardnessChanged = viewModel::setBrushHardness,
+            onBrushFlowChanged = viewModel::setBrushFlow,
+            onBrushSpacingChanged = viewModel::setBrushSpacing,
+            onBrushSmoothingChanged = viewModel::setBrushSmoothing,
+            onBrushScatterChanged = viewModel::setBrushScatter,
+            onPressureResponseChanged = viewModel::setBrushPressureResponse,
+            onPressureSimulationChanged = viewModel::setPressureSimulationEnabled,
+            onSymmetryChanged = viewModel::setSymmetryMode,
+            onColorChanged = viewModel::setBrushColor,
         )
     }
 }
@@ -299,6 +338,7 @@ private fun CanvasRenderSurface(
     onSelectionComplete: (left: Float, top: Float, right: Float, bottom: Float) -> Unit,
     onTransformGestureStart: () -> Unit,
     onTransformGesture: (dx: Float, dy: Float, scaleFactor: Float, rotationDegrees: Float, pivotX: Float, pivotY: Float) -> Unit,
+    showGuides: Boolean = false,
 ) {
     // Live in-progress stroke/shape, in CANVAS BITMAP pixel space —
     // drawn as an immediate overlay so a finger drag shows visible
@@ -496,6 +536,20 @@ private fun CanvasRenderSurface(
                                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f),
                             )
                         }
+
+                        if (showGuides) {
+                            val gridColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.12f)
+                            val count = 8
+                            for (i in 1 until count) {
+                                val gx = offsetXPx + (widthPx * i / count.toFloat()) * scale
+                                val gy = offsetYPx + (heightPx * i / count.toFloat()) * scale
+                                drawLine(gridColor, androidx.compose.ui.geometry.Offset(gx, offsetYPx), androidx.compose.ui.geometry.Offset(gx, offsetYPx + displayedHeightPx), strokeWidth = 1f)
+                                drawLine(gridColor, androidx.compose.ui.geometry.Offset(offsetXPx, gy), androidx.compose.ui.geometry.Offset(offsetXPx + displayedWidthPx, gy), strokeWidth = 1f)
+                            }
+                            val centerColor = GoldPrimary.copy(alpha = 0.45f)
+                            drawLine(centerColor, androidx.compose.ui.geometry.Offset(offsetXPx + displayedWidthPx / 2f, offsetYPx), androidx.compose.ui.geometry.Offset(offsetXPx + displayedWidthPx / 2f, offsetYPx + displayedHeightPx), strokeWidth = 1.5f)
+                            drawLine(centerColor, androidx.compose.ui.geometry.Offset(offsetXPx, offsetYPx + displayedHeightPx / 2f), androidx.compose.ui.geometry.Offset(offsetXPx + displayedWidthPx, offsetYPx + displayedHeightPx / 2f), strokeWidth = 1.5f)
+                        }
                     }
                 }
             }
@@ -528,99 +582,81 @@ private fun ToolPalette(
     activeTool: DrawToolType,
     brushSize: Float,
     brushType: com.waheed.artificerx.domain.model.BrushType,
+    opacity: Float,
+    hardness: Float,
+    flow: Float,
+    spacing: Float,
+    smoothing: Float,
+    scatter: Float,
+    sizePressure: Float,
+    opacityPressure: Float,
+    pressureSimulation: Boolean,
+    symmetry: com.waheed.artificerx.domain.model.SymmetryMode,
+    colorHex: String,
     onToolSelected: (DrawToolType) -> Unit,
     onBrushSizeChanged: (Float) -> Unit,
     onBrushTypeSelected: (com.waheed.artificerx.domain.model.BrushType) -> Unit,
+    onBrushOpacityChanged: (Float) -> Unit,
+    onBrushHardnessChanged: (Float) -> Unit,
+    onBrushFlowChanged: (Float) -> Unit,
+    onBrushSpacingChanged: (Float) -> Unit,
+    onBrushSmoothingChanged: (Float) -> Unit,
+    onBrushScatterChanged: (Float) -> Unit,
+    onPressureResponseChanged: (Float, Float) -> Unit,
+    onPressureSimulationChanged: (Boolean) -> Unit,
+    onSymmetryChanged: (com.waheed.artificerx.domain.model.SymmetryMode) -> Unit,
+    onColorChanged: (String) -> Unit,
 ) {
-    val tools =
-        remember {
-            listOf(
-                DrawToolType.BRUSH to Icons.Filled.Brush,
-                DrawToolType.ERASER to Icons.Filled.Delete,
-                DrawToolType.SHAPE_RECT to Icons.Filled.Rectangle,
-                DrawToolType.GRADIENT to Icons.Filled.Gradient,
-                DrawToolType.FILL to Icons.Filled.FormatColorFill,
-                DrawToolType.SELECTION to Icons.Filled.Crop,
-                DrawToolType.TRANSFORM to Icons.Filled.Transform,
-                DrawToolType.TEXT to Icons.Filled.TextFields,
-                DrawToolType.EYEDROPPER to Icons.Filled.ColorLens,
-            )
-        }
-    // v0.4.30 real brush engine: each of these genuinely renders
-    // differently in CanvasCompositor.drawPath (see its doc) — this
-    // isn't a cosmetic label list, picking PENCIL vs MARKER vs
-    // AIRBRUSH actually changes the pixels that land.
-    val brushTypes =
-        remember {
-            listOf(
-                com.waheed.artificerx.domain.model.BrushType.INK_PEN to "Ink",
-                com.waheed.artificerx.domain.model.BrushType.PENCIL to "Pencil",
-                com.waheed.artificerx.domain.model.BrushType.MARKER to "Marker",
-                com.waheed.artificerx.domain.model.BrushType.CALLIGRAPHY to "Calligraphy",
-                com.waheed.artificerx.domain.model.BrushType.AIRBRUSH to "Airbrush",
-                com.waheed.artificerx.domain.model.BrushType.WATERCOLOR to "Watercolor",
-                com.waheed.artificerx.domain.model.BrushType.CHARCOAL to "Charcoal",
-            )
-        }
-
-    Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface),
-    ) {
-        if (activeTool == DrawToolType.BRUSH || activeTool == DrawToolType.ERASER) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Size", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Slider(
-                    value = brushSize,
-                    onValueChange = onBrushSizeChanged,
-                    valueRange = 1f..80f,
-                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                    colors = SliderDefaults.colors(thumbColor = GoldPrimary, activeTrackColor = GoldPrimary),
-                )
-                Text(
-                    "${brushSize.toInt()}px",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        if (activeTool == DrawToolType.BRUSH) {
-            LazyRow(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp),
-            ) {
-                items(brushTypes) { (type, label) ->
-                    androidx.compose.material3.FilterChip(
-                        selected = type == brushType,
-                        onClick = { onBrushTypeSelected(type) },
-                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                        colors =
-                            androidx.compose.material3.FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = GoldPrimary.copy(alpha = 0.25f),
-                                selectedLabelColor = GoldPrimary,
-                            ),
-                    )
-                }
-            }
-        }
-
+    val tools = remember {
+        listOf(
+            DrawToolType.BRUSH to Icons.Filled.Brush,
+            DrawToolType.ERASER to Icons.Filled.Delete,
+            DrawToolType.SHAPE_RECT to Icons.Filled.Rectangle,
+            DrawToolType.SHAPE_ELLIPSE to Icons.Filled.Circle,
+            DrawToolType.GRADIENT to Icons.Filled.Gradient,
+            DrawToolType.FILL to Icons.Filled.FormatColorFill,
+            DrawToolType.SELECTION to Icons.Filled.Crop,
+            DrawToolType.TRANSFORM to Icons.Filled.Transform,
+            DrawToolType.TEXT to Icons.Filled.TextFields,
+            DrawToolType.EYEDROPPER to Icons.Filled.ColorLens,
+        )
+    }
+    Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
         LazyRow(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding =
-                androidx.compose.foundation.layout
-                    .PaddingValues(horizontal = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 9.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp),
         ) {
-            items(tools) { (tool, icon) ->
-                ToolChip(icon = icon, isSelected = tool == activeTool, onClick = { onToolSelected(tool) })
-            }
+            items(tools) { (tool, icon) -> ToolChip(icon = icon, isSelected = tool == activeTool, onClick = { onToolSelected(tool) }) }
+        }
+        if (activeTool == DrawToolType.BRUSH || activeTool == DrawToolType.ERASER) {
+            AdvancedBrushDock(
+                activeBrush = brushType,
+                sizePx = brushSize,
+                opacity = opacity,
+                hardness = hardness,
+                flow = flow,
+                spacing = spacing,
+                smoothing = smoothing,
+                scatter = scatter,
+                sizePressure = sizePressure,
+                opacityPressure = opacityPressure,
+                pressureSimulation = pressureSimulation,
+                symmetry = symmetry,
+                colorHex = colorHex,
+                onBrushSelected = onBrushTypeSelected,
+                onSizeChanged = onBrushSizeChanged,
+                onOpacityChanged = onBrushOpacityChanged,
+                onHardnessChanged = onBrushHardnessChanged,
+                onFlowChanged = onBrushFlowChanged,
+                onSpacingChanged = onBrushSpacingChanged,
+                onSmoothingChanged = onBrushSmoothingChanged,
+                onScatterChanged = onBrushScatterChanged,
+                onPressureResponseChanged = onPressureResponseChanged,
+                onPressureSimulationChanged = onPressureSimulationChanged,
+                onSymmetryChanged = onSymmetryChanged,
+                onColorChanged = onColorChanged,
+            )
         }
     }
 }
@@ -689,21 +725,43 @@ private fun LayerPanelOverlay(
                         .clip(LayerRowShape)
                         .background(
                             if (layer.id == activeLayerId) PurpleAccent.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface,
-                        ).padding(8.dp),
+                        )
+                        .then(Modifier)
+                        .padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = layer.name,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = layer.name,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
+                    Text(
+                        text = "${layer.blendMode.name.lowercase()}  •  ${(layer.opacity * 100).toInt()}%" ,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Slider(
+                        value = layer.opacity,
+                        onValueChange = { onOpacityChange(layer.id, it) },
+                        valueRange = 0f..1f,
+                        colors = SliderDefaults.colors(thumbColor = GoldPrimary, activeTrackColor = GoldPrimary),
+                    )
+                }
                 IconButton(onClick = { onToggleVisibility(layer.id) }, modifier = Modifier.size(32.dp)) {
                     Icon(
                         Icons.Filled.Circle,
                         contentDescription = "Toggle visibility",
                         tint = if (layer.isVisible) GoldPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(14.dp),
+                    )
+                }
+                IconButton(onClick = { onToggleLock(layer.id) }, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        if (layer.isLocked) Icons.Filled.Lock else Icons.Filled.LockOpen,
+                        contentDescription = if (layer.isLocked) "Unlock layer" else "Lock layer",
+                        tint = if (layer.isLocked) QualityFail else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp),
                     )
                 }
                 IconButton(onClick = { onDeleteLayer(layer.id) }, modifier = Modifier.size(32.dp)) {
