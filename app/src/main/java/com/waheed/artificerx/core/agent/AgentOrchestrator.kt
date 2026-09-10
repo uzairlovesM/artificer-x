@@ -291,7 +291,7 @@ class AgentOrchestrator
 
                     val toolCalls = assistantMessage.toolCalls
                     if (toolCalls.isNullOrEmpty()) {
-                        if (LongOutputContinuationPlanner.shouldContinue(turnResult.finishReason)) {
+                        if (LongOutputContinuationPlanner.shouldContinue(resolvedTurnResult.finishReason)) {
                             messages.add(
                                 ChatMessageDto(
                                     role = "user",

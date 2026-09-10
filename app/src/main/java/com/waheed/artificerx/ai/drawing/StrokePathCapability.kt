@@ -14,10 +14,6 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
-/**
- * Agent-facing stroke rasterizer. It uses the same BrushEngine implementation
- * as the drawing subsystem instead of maintaining a second fake renderer.
- */
 class StrokePathCapability {
     private val brushEngines = ConcurrentHashMap<String, BrushEngine>()
     private val activeJobs = ConcurrentHashMap<String, Job>()
@@ -78,8 +74,11 @@ class StrokePathCapability {
             }
         }
 
-    fun cancelStrokeProcessing(context: Context, strokeId: String): Boolean =
-        activeJobs.remove(strokeId)?.cancel() == true
+    fun cancelStrokeProcessing(context: Context, strokeId: String): Boolean {
+        val job = activeJobs.remove(strokeId) ?: return false
+        job.cancel()
+        return true
+    }
 
     fun clear(context: Context) {
         brushEngines.remove(contextKey(context))?.clearBrushRegistry()
@@ -87,5 +86,4 @@ class StrokePathCapability {
 
     private fun contextKey(context: Context): String =
         context.applicationContext.packageName
-
 }

@@ -27,24 +27,21 @@ class BrushEngine(private val context: Context) : ErrorHandler by MultiModalErro
     ): DrawingResult = try {
         val errors = mutableListOf<Throwable>()
 
-        // Execute all operations with error collection
         for (op in operations) {
             try {
                 op(this)
             } catch (e: Exception) {
-                errors += e // Collect all errors
+                errors += e
             }
         }
 
-        // Process aggregated errors if any occurred
         if (errors.isNotEmpty()) {
             throw MultipleModelFailureException(errors.map { ModelError("brush", it.message) })
         }
 
-        // Return successful result after all operations
         DrawingResult(baseImage)
     } catch (e: MultipleModelFailureException) {
-        throw e // Pass aggregated errors up the chain
+        throw e
     }
 
     data class BrushData(
@@ -70,18 +67,18 @@ class BrushEngine(private val context: Context) : ErrorHandler by MultiModalErro
     fun registerBrushAndReturnId(brush: BrushData): String {
         val brushId = "${brush.brushType.name}_${UUID.randomUUID()}"
         brushRegistry[brushId] = brush
-        DebugLogger.d("BrushEngine", "Registered brush: $brushId with ${brush.brushType.description}")
+        DebugLogger.d("BrushEngine: Registered brush: $brushId with ${brush.brushType.description}")
         return brushId
     }
 
     suspend fun applyBrush(strokePath: Path, brushId: String, baseImage: Bitmap) = coroutineScope {
         val brush = brushRegistry[brushId] ?: throw IllegalArgumentException("Brush not found: $brushId")
-        DebugLogger.d("BrushEngine", "Applying brush: ${brush.brushType} with id: $brushId")
+        DebugLogger.d("BrushEngine: Applying brush: ${brush.brushType} with id: $brushId")
 
         val paint = createPaintForBrush(brush, strokePath)
         val canvas = Canvas(baseImage)
         canvas.drawPath(strokePath, paint)
-        DebugLogger.d("BrushEngine", "Finished applying brush: $brushId")
+        DebugLogger.d("BrushEngine: Finished applying brush: $brushId")
         baseImage
     }
 
@@ -103,7 +100,6 @@ class BrushEngine(private val context: Context) : ErrorHandler by MultiModalErro
             BrushType.TEXTURED -> {
                 val textureShader = BitmapShader(brush.texture ?: Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888), Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
                 paint.shader = textureShader
-                // Advanced texture emboss effect
                 paint.maskFilter = EmbossMaskFilter(floatArrayOf(1.0f, 1.0f, 90f), 0.8f, brush.size * 2, 12f)
             }
             BrushType.ERASER -> PorterDuffXfermode(PorterDuff.Mode.CLEAR).also { paint.xfermode = it }
@@ -133,22 +129,20 @@ class BrushEngine(private val context: Context) : ErrorHandler by MultiModalErro
 
     fun unregisterBrush(brushId: String) {
         brushRegistry.remove(brushId)
-        DebugLogger.d("BrushEngine", "Unregistered brush: $brushId")
+        DebugLogger.d("BrushEngine: Unregistered brush: $brushId")
     }
 
     fun clearBrushRegistry() {
         brushRegistry.clear()
-        DebugLogger.d("BrushEngine", "Cleared all registered brushes")
+        DebugLogger.d("BrushEngine: Cleared all registered brushes")
     }
 
     fun getBrushCount(): Int = brushRegistry.size
 
-    // Advanced pressure-aware brush adjustment
     private class PressureManager {
-        fun adjustSize(baseSize: Float): Float = baseSize * 0.5f + kotlin.random.Random.nextFloat() * 1.5f // Simulated pressure effect
+        fun adjustSize(baseSize: Float): Float = baseSize * 0.5f + kotlin.random.Random.nextFloat() * 1.5f
     }
 
-    // Advanced shape generators for complex brush shapes
     private object PathsUtils {
         fun makeTexturedPath(texture: Bitmap): Path {
             val path = Path()

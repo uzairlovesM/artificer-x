@@ -28,7 +28,7 @@ class SafeAIProcessor : DrawingCapability, ErrorHandler by MultiModalErrorAggreg
         return runCatching {
             MultiModalEngine().process(context)
         }.getOrElse { error ->
-            val collected = handle("multimodal", error)
+            val collected = handle("multimodal", error as? Exception ?: Exception(error))
             throw MultipleModelFailureException(collected)
         }
     }
