@@ -13,5 +13,5 @@ data class Project
      @ColumnInfo(name = "name") val name: String,
      @ColumnInfo(name = "createdAt") val createdAt: Long = System.currentTimeMillis(),
      @ColumnInfo(name = "lastModified") val lastModified: Long = System.currentTimeMillis(),
-     @FileInfo(name = "artifacts") val artifacts: ArrayList<Bitmap> = ArrayList()
+     @ColumnInfo(name = "artifacts") val artifacts: ArrayList<Bitmap> = ArrayList()
 )

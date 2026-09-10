@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import com.waheed.artificerx.domain.Project
+import com.waheed.artificerx.domain.ProjectEntity
 import com.waheed.artificerx.util.ProjectDao
 import dagger.Module
 import dagger.Provides
