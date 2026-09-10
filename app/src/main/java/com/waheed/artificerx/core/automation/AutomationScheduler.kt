@@ -2,10 +2,13 @@ package com.waheed.artificerx.core.automation
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import javax.inject.Inject
+import javax.inject.Singleton
 
 data class AutomationTask(val id: String, val name: String, val runAtMillis: Long, val priority: Int = 0)
 
-class AutomationScheduler {
+@Singleton
+class AutomationScheduler @Inject constructor() {
     private val tasks = ConcurrentHashMap<String, AutomationTask>()
     private val runs = AtomicLong()
 
