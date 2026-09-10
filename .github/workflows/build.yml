@@ -195,6 +195,35 @@ jobs:
       - name: chmod gradlew
         run: chmod +x gradlew
 
+      - name: 1c. Source Graph Integrity Gate
+        id: step_source_graph_integrity
+        continue-on-error: true
+        run: |
+          python3 tools/verify-project.py
+          if grep -RIn --exclude-dir=build --exclude='*.md' 'error.NonExistentClass' app/src/main/java; then
+            echo "::error::Generated/KSP placeholder types are present in source"
+            exit 1
+          fi
+
+      - name: 1d. Stage 0 Foundation Gate
+        id: step_stage0_foundation
+        continue-on-error: true
+        run: |
+          python3 tools/verify-foundation.py
+          git diff --check
+
+      - name: 1e. Apex Runtime Backbone Gate (Stages 1-6)
+        id: step_apex_runtime
+        continue-on-error: true
+        run: |
+          python3 tools/verify-apex-runtime.py
+
+      - name: 1f. Deep Project Integrity Gate
+        id: step_deep_project_integrity
+        continue-on-error: true
+        run: |
+          python3 tools/verify-deep-project.py
+
       - name: Create ci-reports directory
         run: mkdir -p ci-reports
 
@@ -1047,6 +1076,16 @@ jobs:
       - name: chmod gradlew
         run: chmod +x gradlew
 
+      - name: 1c. Source Graph Integrity Gate
+        id: step_source_graph_integrity
+        continue-on-error: true
+        run: |
+          python3 tools/verify-project.py
+          if grep -RIn --exclude-dir=build --exclude='*.md' 'error.NonExistentClass' app/src/main/java; then
+            echo "::error::Generated/KSP placeholder types are present in source"
+            exit 1
+          fi
+
       - name: Enable KVM for hardware-accelerated emulator
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -1137,6 +1176,16 @@ jobs:
 
       - name: chmod gradlew
         run: chmod +x gradlew
+
+      - name: 1c. Source Graph Integrity Gate
+        id: step_source_graph_integrity
+        continue-on-error: true
+        run: |
+          python3 tools/verify-project.py
+          if grep -RIn --exclude-dir=build --exclude='*.md' 'error.NonExistentClass' app/src/main/java; then
+            echo "::error::Generated/KSP placeholder types are present in source"
+            exit 1
+          fi
 
       - name: Check for a benchmark module or benchmark tests
         id: check_benchmarks

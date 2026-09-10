@@ -1,29 +1,47 @@
 package com.waheed.artificerx.drawing
 
-import androidx.lifecycle.LiveData
-import com.waheed.artificerx.data.local.ProjectDao
+import com.waheed.artificerx.data.local.db.ProjectDao
+import com.waheed.artificerx.data.repository.ProjectRepository as PersistentProjectRepository
 import com.waheed.artificerx.domain.Project
+import com.waheed.artificerx.domain.toDomain
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.runBlocking
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Compatibility facade for legacy drawing callers. The canonical persistence
+ * implementation remains data.repository.ProjectRepository. */
 @Singleton
 class ProjectRepository @Inject constructor(
-    private val projectDao: ProjectDao
+    private val dao: ProjectDao,
+    private val persistent: PersistentProjectRepository,
 ) {
-    suspend fun saveProject(project: Project): Long = projectDao.insert(project)
-    suspend fun updateProject(project: Project): Int = projectDao.update(project)
-    suspend fun deleteProject(project: Project): Int = projectDao.delete(project)
+    fun getRecentProjects(): Flow<List<Project>> = dao.observeAllProjects().map { rows -> rows.map { it.toDomain() } }
 
-    fun getRecentProjects(): Flow<List<Project>> = projectDao.getAllProjects()
-
-    suspend fun addArtifacts(projectId: String, newArtifacts: List<Bitmap>) {
-        val project = projectDao.getProjectById(projectId)
-        project?.let {
-            val allArtifacts = if (it.artifacts.isEmpty()) newArtifacts else it.artifacts + newArtifacts
-            projectDao.refreshArtifacts(it, ArrayList(allArtifacts))
-        }
+    suspend fun saveProject(project: Project): Long {
+        dao.upsertProject(project.toEntity())
+        return 1L
     }
 
-    fun getProjectCount(): Int = projectDao.getProjectCount()
+    suspend fun updateProject(project: Project): Int {
+        dao.updateProject(project.toEntity())
+        return 1
+    }
+
+    suspend fun deleteProject(project: Project): Int {
+        dao.deleteProject(project.toEntity())
+        return 1
+    }
+
+    suspend fun addArtifacts(projectId: String, newArtifacts: List<String>) {
+        val current = dao.getProjectById(projectId) ?: return
+        val nextThumbnail = newArtifacts.lastOrNull() ?: current.thumbnailPath
+        dao.updateProject(current.copy(thumbnailPath = nextThumbnail, lastModifiedEpochMillis = System.currentTimeMillis()))
+    }
+
+    fun getProjectCount(): Int = runBlocking { dao.getProjectCount() }
+
+    fun newProject(name: String): Project = Project(projectId = UUID.randomUUID().toString(), name = name)
 }

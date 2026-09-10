@@ -1,49 +1,40 @@
 package com.waheed.artificerx.util
 
 import android.Manifest
-import android.app.Application
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresApi
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import androidx.core.content.ContextCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
-import dagger.hilt.android.scopes.ActivityRetainedComponentScope
-import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutinesCoroutineScope
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class PermissionManager @Inject constructor(
-    @ApplicationContext val app: Application
+    @ApplicationContext private val appContext: Context,
 ) {
-    private val requestPermissionLauncher = app.registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted: Boolean ->
-        // Handle permission result
-        isPermissionGranted(isGranted)
+    data class PermissionStatus(val permission: String, val granted: Boolean)
+
+    fun isPermissionGranted(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(appContext, permission) == PackageManager.PERMISSION_GRANTED
+
+    fun isStoragePermissionGranted(): Boolean =
+        if (Build.VERSION.SDK_INT >= 33) isPermissionGranted(Manifest.permission.READ_MEDIA_IMAGES)
+        else isPermissionGranted(Manifest.permission.WRITE_EXTERNAL_STORAGE) ||
+            isPermissionGranted(Manifest.permission.READ_EXTERNAL_STORAGE)
+
+    fun status(permission: String): PermissionStatus = PermissionStatus(permission, isPermissionGranted(permission))
+
+    fun statusFor(vararg permissions: String): List<PermissionStatus> = permissions.map(::status)
+
+    fun appDetailsIntent(): Intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+        data = Uri.parse("package:${appContext.packageName}")
     }
 
-    fun requestStoragePermission() {
-        requestPermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+    fun manageAllFilesIntent(): Intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+        data = Uri.parse("package:${appContext.packageName}")
     }
-
-    fun requestLocationPermission() {
-        requestPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-    }
-
-    fun isPermissionGranted(isGranted: Boolean) {
-        if (isGranted) {
-            DebugLogger.d("PermissionManager", "Required permission granted")
-        } else {
-            DebugLogger.e("PermissionManager", "Required permission denied: user might need to update app settings")
-        }
-    }
-
-    fun isStoragePermissionGranted(): Boolean = app.checkSelfPermission(
-        Manifest.permission.WRITE_EXTERNAL_STORAGE
-    ) == PackageManager.PERMISSION_GRANTED
-
-    fun isLocationPermissionGranted(): Boolean = app.checkSelfPermission(
-        Manifest.permission.ACCESS_FINE_LOCATION
-    ) == PackageManager.PERMISSION_GRANTED
 }

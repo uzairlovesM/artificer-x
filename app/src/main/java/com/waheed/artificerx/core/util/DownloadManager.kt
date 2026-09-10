@@ -3,32 +3,22 @@ package com.waheed.artificerx.core.util
 import android.content.Context
 import android.net.Uri
 import com.waheed.artificerx.core.runtime.NetworkManager
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class DownloadManager {
-    private val networkManager: NetworkManager
-    private val context: Context
+@Singleton
+class DownloadManager @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val networkManager: NetworkManager,
+) {
+    suspend fun downloadFile(url: String, destination: File): File? =
+        networkManager.download(Uri.parse(url), destination)
 
-    constructor(@ApplicationContext val context: Context, networkManager: NetworkManager) {
-        this.context = context
-        this.networkManager = networkManager
-    }
-
-    suspend fun downloadFile(url: String, destination: File): File? = withContext(Dispatchers.IO) {
-        try {
-            val uri = Uri.parse(url)
-            networkManager.download(uri, destination)
-            destination.takeIf { it.exists() }
-        } catch (e: Exception) {
-            DebugLogger.e("Download failed", e)
-            null
-        }
-    }
-
-    fun ensureExternalStoragePermission() {
-        val permissions = arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-        NetworkManager.requestPermissions(permissions)
+    suspend fun downloadToCache(url: String, fileName: String): File? = withContext(Dispatchers.IO) {
+        downloadFile(url, File(context.cacheDir, fileName))
     }
 }

@@ -1,31 +1,23 @@
 package com.waheed.artificerx.init
 
 import android.app.Application
-import com.waheed.artificerx.core.ai.ReasoningEngine
+import android.content.Context
 import com.waheed.artificerx.util.PressureManager
-import com.waheed.artificerx.util.NetworkManager
-import org.tensorflow.lite.Interpreter
 import java.io.File
-import java.nio.MappedByteBuffer
-import java.nio.channels.FileChannel
 
 object ArtificerXInit {
-    private lateinit var context: Application
-    private lateinit var interpreter: Interpreter
-    private lateinit var networkManager: NetworkManager
-    private lateinit var pressureManager: PressureManager
+    private var context: Application? = null
+    private var modelFile: File? = null
+    private var pressureManager: PressureManager? = null
 
     fun init(application: Application) {
         context = application
-        networkManager = NetworkManager(application)
+        pressureManager?.dispose()
         pressureManager = PressureManager()
-        interpreter = loadTensorModel()
+        modelFile = File(application.filesDir, "model_artificerx.tflite").takeIf { it.isFile && it.canRead() }
     }
 
-    private fun loadTensorModel(): Interpreter {
-        val modelFile = File(context.filesDir, "model_artificerx.tflite")
-        val fileInputStream = context.contentResolver.openFileInput("model_artificerx.tflite").use {}
-        return Interpreter(MappedByteBufferLoader(fileInputStream.fold)
-        )
-    }
+    fun isModelAvailable(): Boolean = modelFile?.canRead() == true
+    fun modelPath(): String? = modelFile?.absolutePath
+    fun applicationContext(): Context? = context
 }

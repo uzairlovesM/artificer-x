@@ -286,3 +286,20 @@ class LocalInferenceEngine
  *  inlined as a string literal wherever it might eventually be
  *  needed. */
 internal fun localModelsDirectory(baseDir: File): File = File(baseDir, "local-models")
+
+data class LocalEngineDiagnosticSnapshot(
+    val state: LocalModelLoadState,
+    val modelId: String?,
+    val initialized: Boolean,
+    val eventBufferCapacity: Int,
+    val likelyOom: Boolean,
+)
+
+fun LocalInferenceEngine.diagnosticSnapshot(): LocalEngineDiagnosticSnapshot =
+    LocalEngineDiagnosticSnapshot(
+        state = loadState.value,
+        modelId = loadedModelId.value,
+        initialized = loadState.value != LocalModelLoadState.NOT_LOADED,
+        eventBufferCapacity = 256,
+        likelyOom = loadState.value == LocalModelLoadState.OUT_OF_MEMORY,
+    )

@@ -144,3 +144,45 @@ object AiProviderPresets {
             knownDailyQuota = null,
         )
 }
+
+fun AiProviderConfig.effectiveEndpoint(modelId: String? = defaultModelId): String {
+    val base = baseUrl.trimEnd('/')
+    return when (type) {
+        AiProviderType.GROQ,
+        AiProviderType.OPENROUTER,
+        AiProviderType.CUSTOM -> if (base.endsWith("/chat/completions")) base else "$base/chat/completions"
+        AiProviderType.CLOUDFLARE_WORKERS_AI -> {
+            val account = keyAlias.substringAfter("account:", "").takeIf { it.isNotBlank() }
+                ?: "account"
+            val model = modelId?.takeIf { it.isNotBlank() } ?: defaultModelId ?: "model"
+            "$base/$account/ai/run/$model"
+        }
+        AiProviderType.LOCAL_GGUF -> "local://$modelId"
+    }
+}
+
+fun AiProviderConfig.validationIssues(modelId: String? = defaultModelId): List<String> = buildList {
+    if (id.isBlank()) add("provider-id-empty")
+    if (displayName.isBlank()) add("display-name-empty")
+    if (type != AiProviderType.LOCAL_GGUF && baseUrl.isBlank()) add("base-url-empty")
+    if (type != AiProviderType.LOCAL_GGUF && keyAlias.isBlank()) add("key-alias-empty")
+    if (modelId.isNullOrBlank() && type != AiProviderType.LOCAL_GGUF) add("model-id-empty")
+    if (supportsVision && type == AiProviderType.LOCAL_GGUF && maskedKeyPreview.isNotBlank()) add("local-secret-preview-unexpected")
+    if (knownDailyQuota != null && knownDailyQuota < 0) add("quota-negative")
+    if (usageTodayCallCount < 0) add("usage-negative")
+}
+
+fun AiProviderConfig.healthWeight(nowEpochMillis: Long = System.currentTimeMillis()): Double {
+    val base = when (connectionState) {
+        ProviderConnectionState.CONNECTED -> 1.0
+        ProviderConnectionState.UNKNOWN -> 0.65
+        ProviderConnectionState.TESTING -> 0.55
+        ProviderConnectionState.RATE_LIMITED -> 0.30
+        ProviderConnectionState.UNREACHABLE -> 0.15
+        ProviderConnectionState.INVALID_KEY -> 0.0
+    }
+    val stalenessHours = lastConnectionCheckAtEpochMillis?.let { ((nowEpochMillis - it).coerceAtLeast(0L) / 3_600_000.0) } ?: 72.0
+    val freshness = 1.0 / (1.0 + stalenessHours / 24.0)
+    val quotaPenalty = if (isOverQuota) 0.05 else if (isNearQuota) 0.55 else 1.0
+    return (base * freshness * quotaPenalty).coerceIn(0.0, 1.0)
+}

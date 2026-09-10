@@ -6,6 +6,7 @@ import com.waheed.artificerx.data.local.db.ArtificerXDatabase
 import com.waheed.artificerx.data.local.db.ProjectDao
 import com.waheed.artificerx.data.local.db.ProjectVersionDao
 import com.waheed.artificerx.data.local.db.WorldModelDao
+import com.waheed.artificerx.data.local.MIGRATIONS
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -28,6 +29,7 @@ object DatabaseModule {
             // version bump. Fine for this personal-use build where the
             // local DB is a cache/project-store, not a source of truth
             // that needs versioned migrations yet.
+            .addMigrations(*MIGRATIONS)
             .fallbackToDestructiveMigration()
             .build()
 

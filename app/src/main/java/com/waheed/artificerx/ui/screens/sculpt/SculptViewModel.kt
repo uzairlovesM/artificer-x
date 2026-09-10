@@ -1,5 +1,8 @@
 package com.waheed.artificerx.ui.screens.sculpt
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.waheed.artificerx.core.mesh.PrimitiveMeshGenerator
@@ -111,9 +114,40 @@ class SculptViewModel
             _uiState.update { it.copy(agentActivity = activity) }
         }
 
-        /** No renderer attached yet — returns null so AgentOrchestrator's
-         *  vision-feedback loop simply skips the snapshot step for 3D
-         *  turns until a real GPU renderer is wired in, rather than
-         *  crashing on a missing dependency. */
-        fun captureSnapshotNow(): android.graphics.Bitmap? = null
+        /** Produces a deterministic CPU mesh thumbnail for AI inspection and
+         *  persistence even when the live GPU viewport is not attached. */
+        fun captureSnapshotNow(): Bitmap? {
+            val meshes = sceneStore.meshes.value.values
+            if (meshes.isEmpty()) return null
+            val bitmap = Bitmap.createBitmap(768, 768, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            canvas.drawColor(android.graphics.Color.rgb(20, 20, 24))
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 2.5f
+            }
+            val allVertices = meshes.flatMap { it.vertices }
+            val minX = allVertices.minOf { it.x }
+            val maxX = allVertices.maxOf { it.x }
+            val minY = allVertices.minOf { it.y }
+            val maxY = allVertices.maxOf { it.y }
+            val span = maxOf(maxX - minX, maxY - minY, 0.001f)
+            val scale = 640f / span
+            fun sx(x: Float) = 64f + (x - minX) * scale
+            fun sy(y: Float) = 64f + (maxY - y) * scale
+            meshes.forEach { mesh ->
+                paint.color = runCatching { android.graphics.Color.parseColor(mesh.colorHex) }.getOrDefault(android.graphics.Color.WHITE)
+                mesh.triangleIndices.chunked(3).forEach { tri ->
+                    if (tri.size == 3 && tri.all { it in mesh.vertices.indices }) {
+                        val a = mesh.vertices[tri[0]]
+                        val b = mesh.vertices[tri[1]]
+                        val c = mesh.vertices[tri[2]]
+                        canvas.drawLine(sx(a.x), sy(a.y), sx(b.x), sy(b.y), paint)
+                        canvas.drawLine(sx(b.x), sy(b.y), sx(c.x), sy(c.y), paint)
+                        canvas.drawLine(sx(c.x), sy(c.y), sx(a.x), sy(a.y), paint)
+                    }
+                }
+            }
+            return bitmap
+        }
     }

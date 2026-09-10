@@ -245,3 +245,47 @@ data class StreamFunctionCallDeltaDto(
     val name: String? = null,
     val arguments: String? = null,
 )
+
+fun ChatCompletionRequest.normalizedForProvider(
+    providerSupportsTools: Boolean = true,
+    providerSupportsReasoningEffort: Boolean = true,
+    providerMaxTokens: Int? = null,
+): ChatCompletionRequest {
+    val safeTemperature = temperature.coerceIn(0.0, 2.0)
+    val safeMaxTokens = when {
+        maxTokens == null -> providerMaxTokens
+        providerMaxTokens == null -> maxTokens.coerceAtLeast(1)
+        else -> maxTokens.coerceIn(1, providerMaxTokens)
+    }
+    return copy(
+        temperature = safeTemperature,
+        maxTokens = safeMaxTokens,
+        tools = if (providerSupportsTools) tools else null,
+        toolChoice = if (providerSupportsTools) toolChoice else null,
+        reasoningEffort = if (providerSupportsReasoningEffort) reasoningEffort else null,
+    )
+}
+
+fun ChatMessageDto.validateProtocol(): List<String> = buildList {
+    if (role !in setOf("system", "user", "assistant", "tool")) add("unsupported-role:$role")
+    if (contentText == null && contentParts == null) add("content-missing")
+    if (contentText != null && contentParts != null) add("content-double-bound")
+    if (role == "tool" && toolCallId.isNullOrBlank()) add("tool-call-id-missing")
+    if (role == "assistant" && toolCalls != null) {
+        toolCalls.forEach { call ->
+            if (call.id.isBlank()) add("tool-call-id-empty")
+            if (call.function.name.isBlank()) add("tool-name-empty")
+            if (call.function.arguments.isBlank()) add("tool-arguments-empty:${call.id}")
+        }
+    }
+    contentParts?.forEachIndexed { index, part ->
+        if (part.type.isBlank()) add("content-part-type-empty:$index")
+        if (part.type == "text" && part.text.isNullOrEmpty()) add("content-part-text-empty:$index")
+        if (part.type == "image_url" && part.imageUrl?.url.isNullOrBlank()) add("image-url-empty:$index")
+    }
+}
+
+fun ChatCompletionResponse.isUsable(): Boolean = error == null && choices.any { it.message.validateProtocol().isEmpty() }
+
+fun ChatCompletionResponse.failureReason(): String? = error?.message
+    ?: choices.firstOrNull()?.finishReason?.takeIf { it == "length" || it == "content_filter" }

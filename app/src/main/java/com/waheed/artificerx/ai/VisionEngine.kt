@@ -1,22 +1,33 @@
-import com.waheed.artificerx.ai.common.ErrorHandler
-import com.waheed.artificerx.core.runtime.Callback
+package com.waheed.artificerx.ai
 
-class VisionEngine : VisionCapability, ErrorHandler by VisionErrorAggregator() {
-    @Throws(MultipleModelFailureException::class)
-    override suspend fun process(context: VisionInput): VisionAnalysis = try {
-        // Process multiple vision models with error aggregation
-        val initialResult = processVisionModel(context)
-        val enhancedResult = processEnhancementModel(initialResult)
-        val depthEstimation = process3DModel(enhancedResult)
-        return enhancedResult.merge(depthEstimation)
-    } catch (e: MultipleModelFailureException) {
-        // Pass aggregated errors to callback
-        throw e
+import com.waheed.artificerx.ai.ai.common.ErrorHandler
+import com.waheed.artificerx.ai.ai.common.ModelError
+import com.waheed.artificerx.ai.ai.common.MultipleModelFailureException
+import com.waheed.artificerx.ai.ai.common.VisionAnalysis
+import com.waheed.artificerx.ai.ai.common.VisionCapability
+import com.waheed.artificerx.ai.ai.common.VisionInput
+import com.waheed.artificerx.ai.vision.VisionInspector
+
+class VisionErrorAggregator : ErrorHandler {
+    private val history = ArrayDeque<ModelError>()
+    override fun handle(modelName: String, exception: Exception): List<ModelError> {
+        history.add(ModelError(modelName, exception.message))
+        while (history.size > 64) history.removeFirst()
+        return history.toList()
     }
+}
 
-    // Centralized error collection with 10k token capacity
-    override fun handle(modelName: String, exception: Exception): List<ModelError> =
-        MultiModalErrorAggregator().aggregateErrors(
-            ModelError(modelName, exception.message)
+class VisionEngine(
+    private val inspector: VisionInspector = VisionInspector(),
+    private val errors: VisionErrorAggregator = VisionErrorAggregator(),
+) : VisionCapability, ErrorHandler by errors {
+    override suspend fun process(context: VisionInput): VisionAnalysis = try {
+        val observation = inspector.inspect(com.waheed.artificerx.ai.vision.VisionFrame(context.bitmap))
+        VisionAnalysis(
+            observation = observation,
+            summary = "scene=${observation.sceneType}; objects=${observation.objects.size}; composition=${"%.3f".format(observation.compositionScore)}",
         )
+    } catch (error: Exception) {
+        throw MultipleModelFailureException(handle("vision", error))
+    }
 }

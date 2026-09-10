@@ -3,38 +3,20 @@ package com.waheed.artificerx.util
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.room.TypeConverter
+import java.io.ByteArrayOutputStream
 
-@DatabaseView("""SELECT * FROM projects""")
-data class ProjectView(
-    @ColumnInfo(name = "projectId") val projectId: String,
-    @ColumnInfo(name = "name") val name: String,
-    @ColumnInfo(name = "createdAt") val createdAt: Long,
-    @ColumnInfo(name = "lastModified") val lastModified: Long,
-    @ColumnInfo(name = "artifacts") val artifactBytes: ByteArray
-)
-
+/** Optional converter used only by legacy callers; the canonical project DB stores file paths. */
 class ImageBitmapRoom {
     @TypeConverter
-    fun from_bitmap(b: Bitmap?): ByteArray? = b?.let { bitmapToBytes(it) }
+    fun fromBitmap(bitmap: Bitmap?): ByteArray? = bitmap?.let(::bitmapToBytes)
 
     @TypeConverter
-    fun to_bitmap(bytes: ByteArray?): Bitmap? = bytes?.let { bytesToBitmap(it) }
+    fun toBitmap(bytes: ByteArray?): Bitmap? = bytes?.let(::bytesToBitmap)
 
-    @TypeConverter
-    fun bitmapToBytes(bitmap: Bitmap): ByteArray {
-        val stream = ByteArrayOutputStream()
+    private fun bitmapToBytes(bitmap: Bitmap): ByteArray = ByteArrayOutputStream().use { stream ->
         bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-        return stream.toByteArray()
+        stream.toByteArray()
     }
 
-    @TypeConverter
-    fun bytesToBitmap(bytes: ByteArray): Bitmap {
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-    }
-
-    @TypeConverter
-    fun from_list(list: List<Bitmap>?): ArrayList<Bitmap>? = list?.let { it as ArrayList }
-
-    @TypeConverter
-    fun to_list(arrayList: ArrayList<Bitmap>?): List<Bitmap>? = arrayList?.toList()
+    private fun bytesToBitmap(bytes: ByteArray): Bitmap? = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
 }

@@ -3,7 +3,9 @@ package com.waheed.artificerx.ui.screens.canvas
 import com.waheed.artificerx.core.art.RulerEngine
 import com.waheed.artificerx.core.art.AnimationFrameStore
 import com.waheed.artificerx.core.art.MangaLayoutStore
-import com.waheed.artificerx.core.art.AdvancedStrokeProcessor
+import com.waheed.artificerx.core.drawing.engine.StrokeDynamicsConfig
+import com.waheed.artificerx.core.drawing.engine.StrokePipeline
+import com.waheed.artificerx.core.drawing.engine.StrokeTaperConfig
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -46,7 +48,6 @@ class StudioViewModel
         private val timelapseRecorder: com.waheed.artificerx.core.timelapse.TimelapseRecorder,
         private val animationFrameStore: AnimationFrameStore,
         private val mangaLayoutStore: MangaLayoutStore,
-    
     ) : ViewModel() {
         private val _compositedBitmap = kotlinx.coroutines.flow.MutableStateFlow<android.graphics.Bitmap?>(null)
         val compositedBitmap: kotlinx.coroutines.flow.StateFlow<android.graphics.Bitmap?> = _compositedBitmap.asStateFlow()
@@ -55,6 +56,7 @@ class StudioViewModel
         private var pendingAttachedImage: android.graphics.Bitmap? = null
 
         private val rulerEngine = RulerEngine()
+        private val strokePipeline = StrokePipeline()
 
         private val _state =
             MutableStateFlow(
@@ -305,8 +307,7 @@ class StudioViewModel
         fun setLayerOpacity(
             layerId: String,
             opacity: Float,
-        )
-        private val strokeProcessor = AdvancedStrokeProcessor() {
+        ) {
             _state.update { current ->
                 current.copy(
                     layers =
@@ -315,7 +316,6 @@ class StudioViewModel
                         },
                 )
             }
-
             recomposite()
         }
 
@@ -347,10 +347,33 @@ class StudioViewModel
             bitmapStore.ensureLayer(activeLayerId, current.canvasWidthPx, current.canvasHeightPx)
             bitmapStore.pushUndoSnapshot()
 
-            val processed = strokeProcessor.process(
+            val inputPressures = pressureWeights?.let { segmentPressures ->
+                if (segmentPressures.isEmpty()) null
+                else {
+                    val first = segmentPressures.first().coerceIn(0.15f, 1.6f)
+                    listOf(first) + segmentPressures.map { it.coerceIn(0.15f, 1.6f) }
+                }
+            }?.map { ((it - 0.15f) / 1.45f).coerceIn(0f, 1f) }
+
+            val processed = strokePipeline.process(
                 points = points,
-                smoothing = current.toolState.brushSmoothing,
-                spacing = current.toolState.brushSpacing,
+                pressureWeights = inputPressures,
+                config = StrokePipeline.Config(
+                    smoothing = current.toolState.brushSmoothing,
+                    spacing = current.toolState.brushSpacing,
+                    pressureResponse = current.toolState.brushOpacityPressure,
+                    dynamics = StrokeDynamicsConfig(
+                        sizePressure = current.toolState.brushSizePressure,
+                        opacityPressure = current.toolState.brushOpacityPressure,
+                        speedSize = 0.18f + current.toolState.brushSmoothing * 0.12f,
+                    ),
+                    taper = StrokeTaperConfig(
+                        startLength = if (current.toolState.brushType == com.waheed.artificerx.domain.model.BrushType.INK_PEN) 0.035f else 0f,
+                        endLength = if (current.toolState.brushType == com.waheed.artificerx.domain.model.BrushType.INK_PEN) 0.055f else 0f,
+                        startExponent = 0.7f,
+                        endExponent = 1.25f,
+                    ),
+                ),
             )
             val workingPoints = processed.points
             val isEraser = current.toolState.activeTool == DrawToolType.ERASER
@@ -365,11 +388,12 @@ class StudioViewModel
                 return
             }
 
-            val baseWeights = pressureWeights?.takeIf { it.isNotEmpty() }
-                ?: if (current.toolState.pressureSimulationEnabled) simulatePressureWeights(workingPoints) else null
-            val weights = baseWeights?.map { weight ->
+            val weights = processed.segmentWeights.takeIf { it.isNotEmpty() }?.map { weight ->
                 1f + (weight - 1f) * current.toolState.brushSizePressure
             }
+                ?: if (current.toolState.pressureSimulationEnabled) {
+                    simulatePressureWeights(workingPoints)
+                } else null
             val effectiveOpacity = (current.toolState.brushOpacity * current.toolState.brushFlow).coerceIn(0f, 1f)
             variants.forEach { variant ->
                 if (activeLayer?.alphaLock == true) {
@@ -537,7 +561,7 @@ class StudioViewModel
             recomposite()
         }
 
-        /** There's no dedicated  0  concept in this app's layer
+        /** There's no dedicated 0 concept in this app's layer
          *  model (every layer is an equal transparent-capable bitmap) —
          *  matching that, this fills the bottom-most layer solid (creating
          *  one named "Background" first if the project is empty) rather
