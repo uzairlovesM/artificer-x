@@ -2,8 +2,6 @@
 #include <jni.h>
 #include <cstdint>
 
-using namespace artificerx;
-
 extern "C" JNIEXPORT jfloat JNICALL
 Java_com_waheed_artificerx_ArtificerXApp_nativeEdgeDensity(
         JNIEnv* env, jobject /* this */, jbyteArray rgba, jint width, jint height) {
