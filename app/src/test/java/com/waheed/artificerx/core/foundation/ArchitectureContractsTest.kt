@@ -2,9 +2,9 @@ package com.waheed.artificerx.core.foundation
 
 import com.waheed.artificerx.core.architecture.ArchitectureRules
 import com.waheed.artificerx.core.architecture.RuntimeBoundary
-import kotlin.test.Test
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
 
 class ArchitectureContractsTest {
     @Test

@@ -27,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -49,6 +50,7 @@ fun BackupRestoreScreen(
     viewModel: BackupRestoreViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val locale = remember { Locale.getDefault() }
 
     Box(
         modifier =
@@ -120,7 +122,7 @@ fun BackupRestoreScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(state.availableBackups) { file ->
-                        BackupFileRow(file = file, onRestore = { viewModel.restoreFrom(file) })
+                        BackupFileRow(file = file, locale = locale, onRestore = { viewModel.restoreFrom(file) })
                     }
                 }
             }
@@ -131,6 +133,7 @@ fun BackupRestoreScreen(
 @Composable
 private fun BackupFileRow(
     file: File,
+    locale: Locale,
     onRestore: () -> Unit,
 ) {
     Row(
@@ -141,7 +144,7 @@ private fun BackupFileRow(
         Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
             Text(file.name, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onBackground, maxLines = 1)
             Text(
-                SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()).format(Date(file.lastModified())),
+                SimpleDateFormat("MMM d, HH:mm", locale).format(Date(file.lastModified())),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

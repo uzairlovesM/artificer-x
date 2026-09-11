@@ -225,19 +225,19 @@ fun ArtificerXNavGraph(
         }
 
         composable(Destinations.PRO_ART_STUDIO) {
-            val parent = remember { navController.getBackStackEntry(Destinations.STUDIO) }
+            val parent = remember(Destinations.STUDIO) { navController.getBackStackEntry(Destinations.STUDIO) }
             val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent)
             ProArtStudioScreen(vm, onBack = {navController.popBackStack()}, onBrushes = {navController.navigate(Destinations.BRUSH_LAB)}, onLayers = {navController.navigate(Destinations.LAYER_LAB)}, onFilters = {navController.navigate(Destinations.FILTER_LAB)}, onRulers = {navController.navigate(Destinations.RULER_LAB)}, onAnimation = {navController.navigate(Destinations.ANIMATION_LAB)}, onMaterials = {navController.navigate(Destinations.MATERIAL_LAB)}, onManga = {navController.navigate(Destinations.MANGA_PAGE_LAB)}, onColor = {navController.navigate(Destinations.COLOR_STUDIO)}, onText = {navController.navigate(Destinations.TEXT_STUDIO)}, onReference = {navController.navigate(Destinations.REFERENCE_STUDIO)})
         }
-        composable(Destinations.BRUSH_LAB) { val parent = remember{navController.getBackStackEntry(Destinations.STUDIO)}; val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent); BrushLabScreen(vm, { navController.popBackStack() }, { navController.navigate(Destinations.CUSTOM_BRUSH_DESIGNER) }) }
-        composable(Destinations.LAYER_LAB) { val parent = remember{navController.getBackStackEntry(Destinations.STUDIO)}; val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent); LayerLabScreen(vm, {navController.popBackStack()}) }
-        composable(Destinations.FILTER_LAB) { val parent = remember{navController.getBackStackEntry(Destinations.STUDIO)}; val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent); FilterLabScreen(vm, {navController.popBackStack()}) }
+        composable(Destinations.BRUSH_LAB) { val parent = remember(Destinations.STUDIO){navController.getBackStackEntry(Destinations.STUDIO)}; val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent); BrushLabScreen(vm, { navController.popBackStack() }, { navController.navigate(Destinations.CUSTOM_BRUSH_DESIGNER) }) }
+        composable(Destinations.LAYER_LAB) { val parent = remember(Destinations.STUDIO){navController.getBackStackEntry(Destinations.STUDIO)}; val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent); LayerLabScreen(vm, {navController.popBackStack()}) }
+        composable(Destinations.FILTER_LAB) { val parent = remember(Destinations.STUDIO){navController.getBackStackEntry(Destinations.STUDIO)}; val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent); FilterLabScreen(vm, {navController.popBackStack()}) }
         composable(Destinations.RULER_LAB) { RulerLabScreen{navController.popBackStack()} }
         composable(Destinations.ANIMATION_LAB) { AnimationLabScreen{navController.popBackStack()} }
         composable(Destinations.MATERIAL_LAB) { MaterialLabScreen{navController.popBackStack()} }
         composable(Destinations.MANGA_PAGE_LAB) { MangaPageLabScreen{navController.popBackStack()} }
-        composable(Destinations.COLOR_STUDIO) { val parent = remember{navController.getBackStackEntry(Destinations.STUDIO)}; val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent); ColorStudioScreen(vm, {navController.popBackStack()}) }
-        composable(Destinations.TEXT_STUDIO) { val parent = remember{navController.getBackStackEntry(Destinations.STUDIO)}; val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent); TextStudioScreen(vm, {navController.popBackStack()}) }
+        composable(Destinations.COLOR_STUDIO) { val parent = remember(Destinations.STUDIO){navController.getBackStackEntry(Destinations.STUDIO)}; val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent); ColorStudioScreen(vm, {navController.popBackStack()}) }
+        composable(Destinations.TEXT_STUDIO) { val parent = remember(Destinations.STUDIO){navController.getBackStackEntry(Destinations.STUDIO)}; val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent); TextStudioScreen(vm, {navController.popBackStack()}) }
         composable(Destinations.REFERENCE_STUDIO) { ReferenceStudioScreen{navController.popBackStack()} }
         composable(Destinations.AUTOMATION_CENTER) { AutomationCenterScreen(onBack = { navController.popBackStack() }) }
         composable(Destinations.WORKSPACE_SEARCH_ADVANCED) { WorkspaceSearchScreen(onBack = { navController.popBackStack() }) }
@@ -253,7 +253,7 @@ fun ArtificerXNavGraph(
         ) }
         composable(Destinations.SYSTEM_OBSERVATORY) { SystemObservatoryScreen { navController.popBackStack() } }
         composable(Destinations.CUSTOM_BRUSH_DESIGNER) {
-            val activity = androidx.compose.ui.platform.LocalContext.current as android.app.Activity
+            val activity = androidx.activity.compose.LocalActivity.current!!
             val ep = androidx.compose.runtime.remember { dagger.hilt.android.EntryPointAccessors.fromActivity(activity, CustomBrushEntryPoint::class.java) }
             CustomBrushDesignerScreen(ep.store(), onBack = { navController.popBackStack() })
         }

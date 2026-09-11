@@ -38,7 +38,7 @@ fun BrushLabScreen(vm: StudioViewModel, onBack: () -> Unit, onCustomDesigner: ()
     Scaffold(topBar = { WorkspaceTopBar("Brush Lab", "256 procedural presets + live brush parameters", onBack) }) { pad ->
         Column(Modifier.fillMaxSize().padding(pad).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { families.take(6).forEach { FilterChip(selected = family == it, onClick = { family = it }, label = { Text(it) }) } }
-            OutlinedTextField(query, { query = it }, label = { Text("Search brushes") }, modifier = Modifier.fillMaxSize().weight(.0f))
+            OutlinedTextField(query, { query = it }, label = { Text("Search brushes") }, modifier = Modifier.fillMaxWidth())
             androidx.compose.material3.OutlinedButton(onClick = onCustomDesigner, modifier = Modifier.fillMaxWidth()) { Text("Open Custom Brush Designer") }
             Text("Size ${size.toInt()} px"); Slider(size, { size = it; vm.setBrushSize(it) }, valueRange = 1f..300f)
             Text("Opacity ${(opacity*100).toInt()}%"); Slider(opacity, { opacity = it; vm.setBrushDefaults(opacity = it) }, valueRange = 0.05f..1f)
