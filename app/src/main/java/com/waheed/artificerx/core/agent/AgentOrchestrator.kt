@@ -450,17 +450,59 @@ class AgentOrchestrator
                     }
 
                     if (snapshotRequestedThisRound && !finished) {
-                        val snapshotBitmap =
-                            try {
-                                withContext(Dispatchers.Main.immediate) { snapshotProvider.captureSnapshot() }
-                            } catch (cancel: kotlinx.coroutines.CancellationException) {
-                                throw cancel
-                            } catch (_: Throwable) {
-                                null
+                        // FIX: previously this unconditionally attached a real
+                        // image_url content part to the next request regardless
+                        // of whether the *current* provider/model actually
+                        // supports vision. Most free tool-calling models on
+                        // Groq/OpenRouter are text-only, so the very next
+                        // request after any requiresSnapshot=true tool (e.g.
+                        // compose_scene) would 400 on every provider in the
+                        // fallback chain identically -- "Every configured
+                        // provider failed to respond" even though the same
+                        // provider had just succeeded moments earlier for a
+                        // text-only call. Only attach the real snapshot when
+                        // the provider about to be called next declares vision
+                        // support; otherwise tell the model in plain text that
+                        // a snapshot was taken so the tool loop can continue
+                        // without silently corrupting every subsequent request.
+                        val nextProvider = providers.getOrNull(providerIndex)
+                        if (nextProvider?.supportsVision == true) {
+                            val snapshotBitmap =
+                                try {
+                                    withContext(Dispatchers.Main.immediate) { snapshotProvider.captureSnapshot() }
+                                } catch (cancel: kotlinx.coroutines.CancellationException) {
+                                    throw cancel
+                                } catch (_: Throwable) {
+                                    null
+                                }
+                            if (snapshotBitmap != null) {
+                                runCatching { snapshotEncoder.encodeForVisionFeedback(snapshotBitmap) }
+                                    .onSuccess { snapshotBase64 -> messages.add(visionFeedbackMessage(snapshotBase64)) }
+                                    .onFailure {
+                                        messages.add(
+                                            ChatMessageDto(
+                                                role = "user",
+                                                contentText = "The canvas was updated by your last action. " +
+                                                    "(Vision snapshot could not be encoded — continue based on the tool result text.)",
+                                            ),
+                                        )
+                                    }
                             }
-                        if (snapshotBitmap != null) {
-                            runCatching { snapshotEncoder.encodeForVisionFeedback(snapshotBitmap) }
-                                .onSuccess { snapshotBase64 -> messages.add(visionFeedbackMessage(snapshotBase64)) }
+                        } else {
+                            // Text-only provider: give the model a plain-text
+                            // nudge instead of an image, so it still knows the
+                            // canvas changed and can continue the loop (e.g.
+                            // call inspect_canvas for a text description, or
+                            // proceed to the next planned step) without ever
+                            // sending an image part this provider will reject.
+                            messages.add(
+                                ChatMessageDto(
+                                    role = "user",
+                                    contentText = "The canvas was updated by your last action. " +
+                                        "This provider/model does not support image input, so no visual snapshot was attached — " +
+                                        "use inspect_canvas if you need a text description of the current state, or continue.",
+                                ),
+                            )
                         }
                     }
                 }
@@ -814,7 +856,10 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
          *  render as a user-role image message so the model can visually
          *  verify the effect of its last tool call(s) before deciding what
          *  to do next — this is what makes self-correction (Section 36)
-         *  possible without a diffusion model in the loop. */
+         *  possible without a diffusion model in the loop. Only ever
+         *  called when the target provider's supportsVision flag is true
+         *  (see the call site in handleUserMessage) — never call this for
+         *  a text-only provider/model. */
         private fun visionFeedbackMessage(base64Jpeg: String): ChatMessageDto =
             ChatMessageDto(
                 role = "user",
