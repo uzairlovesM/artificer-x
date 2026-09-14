@@ -44,6 +44,13 @@ interface ChatMessageDao {
     @Query("SELECT * FROM chat_messages WHERE threadId = :threadId ORDER BY timestampEpochMillis ASC")
     suspend fun getMessages(threadId: String): List<ChatMessageEntity>
 
+    // Used to resolve which conversation a "message" search result
+    // belongs to -- WorkspaceSearch's message results carry the
+    // chat_messages row id, not a threadId, so navigating a tapped
+    // result into AgentChatScreen needs this lookup first.
+    @Query("SELECT * FROM chat_messages WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): ChatMessageEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(message: ChatMessageEntity)
 
