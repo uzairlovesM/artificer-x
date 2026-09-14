@@ -34,6 +34,20 @@ object Destinations {
     const val STUDIO = "studio"
     const val CANVAS = "studio/canvas"
     const val AGENT_CHAT = "studio/agent_chat"
+
+    // Deep link into a specific past conversation (used by search-result
+    // navigation — see WorkspaceSearchScreen). {threadId} is required in
+    // the route pattern, but AGENT_CHAT above is kept as-is (no argument)
+    // so every existing "open chat" call site keeps working unchanged and
+    // always resumes whatever thread was last active — only call sites
+    // that actually have a specific thread in hand (search results) use
+    // this one instead.
+    const val AGENT_CHAT_THREAD_ARG = "threadId"
+    const val AGENT_CHAT_THREAD_BASE = "studio/agent_chat/thread"
+    const val AGENT_CHAT_THREAD = "$AGENT_CHAT_THREAD_BASE/{$AGENT_CHAT_THREAD_ARG}"
+
+    fun agentChatThreadRoute(threadId: String) = "$AGENT_CHAT_THREAD_BASE/$threadId"
+
     const val LAYER_PANEL = "studio/layer_panel"
     const val TOOL_PALETTE = "studio/tool_palette"
     const val LIVE_AGENT_LOG = "studio/live_agent_log"
