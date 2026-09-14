@@ -45,6 +45,11 @@ class ChatWorkspaceRepository @Inject constructor(
     suspend fun searchArtifacts(query: String) = artifactDao.search(query.trim().take(100))
     suspend fun getArtifact(id: String): ArtifactEntity? = artifactDao.getById(id)
 
+    /** Resolves which conversation a given message id belongs to --
+     *  needed to navigate a tapped "message" search result into
+     *  AgentChatScreen, which opens by threadId, not messageId. */
+    suspend fun getMessageThreadId(messageId: String): String? = messageDao.getById(messageId)?.threadId
+
     suspend fun deleteArtifact(id: String) {
         artifactDao.getById(id)?.let { artifact ->
             runCatching { java.io.File(artifact.path).delete() }
