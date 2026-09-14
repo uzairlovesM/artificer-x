@@ -179,6 +179,37 @@ fun ArtificerXNavGraph(
             )
         }
 
+        composable(
+            route = Destinations.AGENT_CHAT_THREAD,
+            arguments = listOf(navArgument(Destinations.AGENT_CHAT_THREAD_ARG) { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val threadId = backStackEntry.arguments?.getString(Destinations.AGENT_CHAT_THREAD_ARG).orEmpty()
+            // Falls back to a fresh Studio entry if the caller reached this
+            // route with no Studio already on the back stack (defensive --
+            // in the shipped app Studio is always the start destination and
+            // stays on the stack, but this avoids a crash if that ever
+            // changes, matching the same runCatching pattern EXPORT uses
+            // below).
+            val studioBackStackEntry =
+                remember(backStackEntry) {
+                    runCatching { navController.getBackStackEntry(Destinations.STUDIO) }.getOrNull()
+                }
+            if (studioBackStackEntry != null) {
+                val studioViewModel: com.waheed.artificerx.ui.screens.canvas.StudioViewModel =
+                    androidx.hilt.navigation.compose
+                        .hiltViewModel(studioBackStackEntry)
+                AgentChatScreen(
+                    onBack = { navController.popBackStack() },
+                    studioViewModel = studioViewModel,
+                    initialThreadId = threadId,
+                )
+            } else {
+                navController.navigate(Destinations.STUDIO) {
+                    popUpTo(Destinations.STUDIO) { inclusive = true }
+                }
+            }
+        }
+
         composable(Destinations.SCULPT_STUDIO) {
             com.waheed.artificerx.ui.screens.sculpt.SculptScreen(
                 onBack = { navController.popBackStack() },
@@ -214,7 +245,12 @@ fun ArtificerXNavGraph(
         composable(Destinations.WORKFLOW_LAB) { WorkflowLabScreen(onBack = { navController.popBackStack() }) }
         composable(Destinations.MODEL_PLAYGROUND) { ModelPlaygroundScreen(onBack = { navController.popBackStack() }) }
         composable(Destinations.SECURITY_CENTER) { SecurityCenterScreen(onBack = { navController.popBackStack() }) }
-        composable(Destinations.WORKSPACE_SEARCH) { UniversalSearchScreen(onBack = { navController.popBackStack() }) }
+        composable(Destinations.WORKSPACE_SEARCH) {
+            UniversalSearchScreen(
+                onBack = { navController.popBackStack() },
+                onOpenChat = { threadId -> navController.navigate(Destinations.agentChatThreadRoute(threadId)) },
+            )
+        }
         composable(Destinations.WORKSPACE_EXPORT) { com.waheed.artificerx.ui.screens.export.WorkspaceBundleScreen(onBack = { navController.popBackStack() }) }
         composable(Destinations.WORKSPACE_IMPORT) { com.waheed.artificerx.ui.screens.importexport.WorkspaceImportScreen(onBack = { navController.popBackStack() }) }
 
