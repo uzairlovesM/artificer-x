@@ -90,12 +90,20 @@ import kotlinx.coroutines.withContext
  * status (pending/running/success/failed) so the "how did it draw
  * this" question (Section 92 Live Agent Log's spirit) is answered
  * right in the conversation, not buried in a separate debug screen.
+ *
+ * @param initialThreadId when non-null (e.g. arriving from a search
+ *   result — see Destinations.AGENT_CHAT_THREAD / WorkspaceSearchScreen),
+ *   the screen switches to that specific past conversation on first
+ *   composition instead of resuming whatever thread was last active.
+ *   Left null for every existing call site so their behavior is
+ *   unchanged.
  */
 @Composable
 fun AgentChatScreen(
     onBack: () -> Unit,
     studioViewModel: com.waheed.artificerx.ui.screens.canvas.StudioViewModel,
     viewModel: AgentChatViewModel = hiltViewModel(),
+    initialThreadId: String? = null,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
@@ -106,6 +114,16 @@ fun AgentChatScreen(
 
     LaunchedEffect(studioViewModel) {
         viewModel.bindStudioViewModel(studioViewModel)
+    }
+
+    // Deep-link into a specific conversation (search result tap). Runs once
+    // per distinct initialThreadId value — switchThread() itself is a no-op
+    // if that thread is already the active one, so this is safe even if the
+    // screen recomposes.
+    LaunchedEffect(initialThreadId) {
+        if (!initialThreadId.isNullOrBlank()) {
+            viewModel.switchThread(initialThreadId)
+        }
     }
 
     val imagePickerLauncher =
@@ -600,8 +618,7 @@ private fun AutoSavedRow(
                         android.content.Intent.createChooser(
                             android.content.Intent(android.content.Intent.ACTION_SEND)
                                 .setType(mime)
-                                .putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                                .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION),
+                                .putExtra(android.content.Intent.EXTRA_STREAM, uri),
                             "Share AI output",
                         ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
                     )
