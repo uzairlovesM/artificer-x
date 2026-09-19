@@ -319,6 +319,94 @@ class StudioViewModel
             recomposite()
         }
 
+        /** CRITICAL FIX: set_layer_property's blend_mode argument was
+         *  parsed by ToolCallParser and carried all the way through
+         *  ParsedToolCall.SetLayerProperty.blendMode, but ToolExecutor's
+         *  branch for that tool only ever applied opacity/isVisible —
+         *  blendMode was silently dropped. So an AI turn (or, via this
+         *  same gap, nothing in the UI either) could never actually
+         *  change a layer's blend mode despite CanvasCompositor and
+         *  LayerBlendMode both having full real support for it. This is
+         *  the method that closes that gap — parses the string tool
+         *  argument against the real enum and updates layer state exactly
+         *  like every other per-layer setter here. Unknown/invalid mode
+         *  strings are ignored (layer keeps its current blend mode)
+         *  rather than crashing or silently defaulting to NORMAL, so a
+         *  slightly-off model-generated string doesn't destructively wipe
+         *  an intentional existing blend mode. */
+        fun setLayerBlendMode(
+            layerId: String,
+            mode: com.waheed.artificerx.domain.model.LayerBlendMode,
+        ) {
+            _state.update { current ->
+                current.copy(
+                    layers =
+                        current.layers.map {
+                            if (it.id == layerId) it.copy(blendMode = mode) else it
+                        },
+                )
+            }
+            recomposite()
+        }
+
+        /** String-arg overload for tool-call call sites (set_layer_property's
+         *  blend_mode is a free-text string in the schema, matching how
+         *  filter_type/shape_type/etc. are already passed through this
+         *  codebase) — parses case-insensitively against LayerBlendMode's
+         *  real names and no-ops on an unrecognized value rather than
+         *  throwing, consistent with this file's existing tolerant-parsing
+         *  style (see setBrushColor's runCatching guard just above). */
+        fun setLayerBlendMode(
+            layerId: String,
+            modeName: String,
+        ) {
+            val mode =
+                runCatching {
+                    com.waheed.artificerx.domain.model.LayerBlendMode.valueOf(modeName.trim().uppercase())
+                }.getOrNull() ?: return
+            setLayerBlendMode(layerId, mode)
+        }
+
+        /** Backs relight_scene (SceneRelightingEngine) — applies a real
+         *  linear/radial gradient directly to the ACTIVE layer's full
+         *  bitmap via CanvasCompositor.applyGradient, the same renderer
+         *  apply_gradient's tool call uses. Layer-targeted (not
+         *  coordinate-targeted like drawManualShape) since relighting
+         *  needs a full-canvas gradient on a layer that was just created
+         *  specifically for this purpose, not a drawn rectangle on
+         *  whatever layer happens to be active from prior tool calls. */
+        fun applyGradientToActiveLayer(
+            gradientType: String,
+            startColorHex: String,
+            endColorHex: String,
+            x: Float,
+            y: Float,
+            width: Float,
+            height: Float,
+            angleDegrees: Float,
+        ) {
+            val current = _state.value
+            val activeLayerId = current.activeLayerId ?: return
+            val activeLayer = current.layers.firstOrNull { it.id == activeLayerId }
+            if (activeLayer?.isLocked == true) return
+
+            bitmapStore.ensureLayer(activeLayerId, current.canvasWidthPx, current.canvasHeightPx)
+            bitmapStore.pushUndoSnapshot()
+            val applied =
+                compositor.applyGradient(
+                    layerId = activeLayerId,
+                    gradientType = gradientType,
+                    startColorHex = startColorHex,
+                    endColorHex = endColorHex,
+                    x = x,
+                    y = y,
+                    width = width,
+                    height = height,
+                    angleDegrees = angleDegrees,
+                )
+            if (applied) recomposite()
+        }
+
         /** Real manual finger-drawing entry point — mirrors ToolExecutor's
          *  DrawPath branch exactly (same CanvasCompositor call, same
          *  symmetry-mirroring behavior) so a human stroke and an agent
