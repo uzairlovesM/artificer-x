@@ -164,6 +164,19 @@ sealed class ParsedToolCall {
 
     data class ComposeScene(val request: String, val quality: Int = 3) : ParsedToolCall()
 
+    /** Real lighting-capability tool: re-lights whatever is already on
+     *  the canvas by adding two new full-canvas overlay layers — a warm
+     *  SCREEN-blend directional light gradient from [directionDegrees]
+     *  and a cool MULTIPLY-blend shadow gradient from the opposite
+     *  direction — without touching any existing pixels. See
+     *  SceneRelightingEngine for the actual gradient/blend-mode math and
+     *  ToolExecutor's RelightScene branch for how mood maps to color. */
+    data class RelightScene(
+        val directionDegrees: Float,
+        val mood: String,
+        val intensity: Float?,
+    ) : ParsedToolCall()
+
     // Section: Web search/fetch tools
     data class WebFetch(
         val url: String,
