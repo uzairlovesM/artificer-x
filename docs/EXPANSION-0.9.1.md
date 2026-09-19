@@ -1,4 +1,4 @@
-# ArtificerX expansion 0.9.1
+jj2# ArtificerX expansion 0.9.1
 
 Adds a second 700-file capability surface across agent orchestration, semantic scene composition, research, repositories, creative planning, local-model execution, plugins, diagnostics, storage, import/export, navigation, settings, memory, and use-case boundaries.
 
