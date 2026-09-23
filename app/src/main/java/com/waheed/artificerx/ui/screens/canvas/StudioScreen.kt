@@ -1,6 +1,8 @@
 package com.waheed.artificerx.ui.screens.canvas
+import androidx.compose.foundation.layout.width
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -105,6 +107,7 @@ fun StudioScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     var isLayerPanelOpen by remember { mutableStateOf(false) }
     var showCanvasGuides by remember { mutableStateOf(false) }
+    var layerScale by remember(state.activeLayerId) { mutableStateOf(1f) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         StudioTopBar(
@@ -133,6 +136,11 @@ fun StudioScreen(
                 symmetryMode = state.toolState.symmetryMode,
                 guideVisible = showCanvasGuides,
                 onGuideToggle = { showCanvasGuides = !showCanvasGuides },
+                onSymmetryCycle = {
+                    val modes = com.waheed.artificerx.domain.model.SymmetryMode.entries
+                    val current = modes.indexOf(state.toolState.symmetryMode).coerceAtLeast(0)
+                    viewModel.setSymmetryMode(modes[(current + 1) % modes.size])
+                },
                 modifier = Modifier.align(Alignment.TopCenter),
             )
 
@@ -219,6 +227,20 @@ fun StudioScreen(
             pressureSimulation = state.toolState.pressureSimulationEnabled,
             symmetry = state.toolState.symmetryMode,
             colorHex = state.toolState.brushColorHex,
+            layerScale = layerScale,
+            onScalePreset = { desiredScale ->
+                val safeDesired = desiredScale.coerceIn(0.25f, 4f)
+                val ratio = (safeDesired / layerScale).coerceIn(0.25f, 4f)
+                viewModel.transformActiveLayer(
+                    dx = 0f,
+                    dy = 0f,
+                    scaleFactor = ratio,
+                    rotationDegrees = 0f,
+                    pivotX = state.canvasWidthPx / 2f,
+                    pivotY = state.canvasHeightPx / 2f,
+                )
+                layerScale = safeDesired
+            },
             onToolSelected = viewModel::selectTool,
             onBrushSizeChanged = viewModel::setBrushSize,
             onBrushTypeSelected = viewModel::setBrushType,
@@ -229,6 +251,10 @@ fun StudioScreen(
             onBrushSmoothingChanged = viewModel::setBrushSmoothing,
             onBrushScatterChanged = viewModel::setBrushScatter,
             onPressureResponseChanged = viewModel::setBrushPressureResponse,
+            onTaperStartChanged = viewModel::setBrushTaperStart,
+            onTaperEndChanged = viewModel::setBrushTaperEnd,
+            onWetnessChanged = viewModel::setBrushWetness,
+            onBleedChanged = viewModel::setBrushBleed,
             onPressureSimulationChanged = viewModel::setPressureSimulationEnabled,
             onSymmetryChanged = viewModel::setSymmetryMode,
             onColorChanged = viewModel::setBrushColor,
@@ -319,7 +345,7 @@ private fun AgentActivityIndicator(activity: AgentActivityState) {
         }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Filled.Circle, contentDescription = null, tint = color, modifier = Modifier.size(8.dp))
-        Spacer(modifier = Modifier.padding(start = 4.dp))
+        Spacer(modifier = Modifier.width(4.dp))
         Text(text = label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -561,7 +587,7 @@ private fun CanvasRenderSurface(
                     tint = GoldPrimary.copy(alpha = 0.4f),
                     modifier = Modifier.size(48.dp),
                 )
-                Spacer(modifier = Modifier.padding(top = 8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "$widthPx×$heightPx canvas",
                     style = MaterialTheme.typography.bodySmall,
@@ -590,9 +616,15 @@ private fun ToolPalette(
     scatter: Float,
     sizePressure: Float,
     opacityPressure: Float,
+    taperStart: Float,
+    taperEnd: Float,
+    wetness: Float,
+    bleed: Float,
     pressureSimulation: Boolean,
     symmetry: com.waheed.artificerx.domain.model.SymmetryMode,
     colorHex: String,
+    layerScale: Float,
+    onScalePreset: (Float) -> Unit,
     onToolSelected: (DrawToolType) -> Unit,
     onBrushSizeChanged: (Float) -> Unit,
     onBrushTypeSelected: (com.waheed.artificerx.domain.model.BrushType) -> Unit,
@@ -603,6 +635,10 @@ private fun ToolPalette(
     onBrushSmoothingChanged: (Float) -> Unit,
     onBrushScatterChanged: (Float) -> Unit,
     onPressureResponseChanged: (Float, Float) -> Unit,
+    onTaperStartChanged: (Float) -> Unit,
+    onTaperEndChanged: (Float) -> Unit,
+    onWetnessChanged: (Float) -> Unit,
+    onBleedChanged: (Float) -> Unit,
     onPressureSimulationChanged: (Boolean) -> Unit,
     onSymmetryChanged: (com.waheed.artificerx.domain.model.SymmetryMode) -> Unit,
     onColorChanged: (String) -> Unit,
@@ -641,6 +677,10 @@ private fun ToolPalette(
                 scatter = scatter,
                 sizePressure = sizePressure,
                 opacityPressure = opacityPressure,
+                taperStart = taperStart,
+                taperEnd = taperEnd,
+                wetness = wetness,
+                bleed = bleed,
                 pressureSimulation = pressureSimulation,
                 symmetry = symmetry,
                 colorHex = colorHex,
@@ -653,10 +693,40 @@ private fun ToolPalette(
                 onSmoothingChanged = onBrushSmoothingChanged,
                 onScatterChanged = onBrushScatterChanged,
                 onPressureResponseChanged = onPressureResponseChanged,
+                onTaperStartChanged = onTaperStartChanged,
+                onTaperEndChanged = onTaperEndChanged,
+                onWetnessChanged = onWetnessChanged,
+                onBleedChanged = onBleedChanged,
                 onPressureSimulationChanged = onPressureSimulationChanged,
                 onSymmetryChanged = onSymmetryChanged,
                 onColorChanged = onColorChanged,
             )
+        }
+        if (activeTool == DrawToolType.TRANSFORM) {
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("Scale layer", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                    Text("${(layerScale * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, color = GoldPrimary)
+                }
+                androidx.compose.foundation.lazy.LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp),
+                ) {
+                    listOf(25f, 50f, 75f, 100f, 125f, 150f, 200f, 300f, 400f).forEach { percent ->
+                        item {
+                            androidx.compose.material3.FilterChip(
+                                selected = kotlin.math.abs(layerScale * 100f - percent) < 0.5f,
+                                onClick = { onScalePreset(percent / 100f) },
+                                label = { Text("${percent.toInt()}%") },
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

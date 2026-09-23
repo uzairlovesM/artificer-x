@@ -4,14 +4,14 @@ import com.waheed.artificerx.core.expansion.CapabilityCheck
 import com.waheed.artificerx.core.expansion.ExpansionCapability
 
 /**
- * Concrete expansion capability for FakeModule. It is deliberately small in mutable state and
+ * Concrete expansion capability for the dependency-injection domain. It is deliberately small in mutable state and
  * large in contract surface: callers can discover what the capability expects before invoking it.
  */
-class FakeModuleExpansion : ExpansionCapability {
-    override val id: String = "di.fakemodule"
+class DependencyInjectionExpansion : ExpansionCapability {
+    override val id: String = "di.dependency-injection"
     override val area: String = "di"
-    override val purpose: String = "FakeModule coordinates di responsibilities through explicit contracts, observable state, validation signals, and deterministic hand-off boundaries."
-    override val contracts: List<String> = listOf("FakeModule.input", "FakeModule.state", "FakeModule.output", "FakeModule.failure", "FakeModule.telemetry")
+    override val purpose: String = "Coordinates dependency-injection responsibilities through explicit contracts, observable state, validation signals, and deterministic hand-off boundaries."
+    override val contracts: List<String> = listOf("DI.input", "DI.state", "DI.output", "DI.failure", "DI.telemetry")
 
     override fun validate(): CapabilityCheck {
         val signalCount = contracts.count { it.isNotBlank() }

@@ -32,6 +32,7 @@ fun CanvasQuickBar(
     symmetryMode: SymmetryMode,
     guideVisible: Boolean,
     onGuideToggle: () -> Unit,
+    onSymmetryCycle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -50,7 +51,7 @@ fun CanvasQuickBar(
         )
         FilterChip(
             selected = symmetryMode != SymmetryMode.OFF,
-            onClick = {},
+            onClick = onSymmetryCycle,
             leadingIcon = { Icon(Icons.Filled.Straighten, contentDescription = null) },
             label = { Text("${symmetryMode.name.replace('_', ' ')}") },
             colors = FilterChipDefaults.filterChipColors(selectedLabelColor = GoldPrimary, selectedLeadingIconColor = GoldPrimary),

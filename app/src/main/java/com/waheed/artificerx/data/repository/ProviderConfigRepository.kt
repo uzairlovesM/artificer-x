@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.util.UUID
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -32,6 +34,7 @@ class ProviderConfigRepository
         private val dataStore: ProviderConfigDataStore,
         private val keyStore: EncryptedKeyStore,
     ) {
+        private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
         val configs: Flow<List<AiProviderConfig>> =
             dataStore.configs.map { records ->
                 records.map { it.toDomain() }
@@ -46,6 +49,9 @@ class ProviderConfigRepository
             rawApiKey: String,
             supportsVision: Boolean,
             supportsToolCalling: Boolean,
+            visionModelIds: Set<String> = emptySet(),
+            reasoningModelIds: Set<String> = emptySet(),
+            toolCallingModelIds: Set<String> = emptySet(),
             knownDailyQuota: Int?,
             makePrimary: Boolean,
             defaultModelId: String? = null,
@@ -66,6 +72,9 @@ class ProviderConfigRepository
                     isPrimary = makePrimary,
                     supportsVision = supportsVision,
                     supportsToolCalling = supportsToolCalling,
+                    visionModelIdsJson = json.encodeToString(visionModelIds.toList()),
+                    reasoningModelIdsJson = json.encodeToString(reasoningModelIds.toList()),
+                    toolCallingModelIdsJson = json.encodeToString(toolCallingModelIds.toList()),
                     defaultModelId = defaultModelId,
                     usageTodayCallCount = 0,
                     lastResetEpochDay = currentEpochDay(),
@@ -138,6 +147,9 @@ class ProviderConfigRepository
                 isPrimary = isPrimary,
                 supportsVision = supportsVision,
                 supportsToolCalling = supportsToolCalling,
+                visionModelIds = runCatching { json.decodeFromString<List<String>>(visionModelIdsJson).toSet() }.getOrDefault(emptySet()),
+                reasoningModelIds = runCatching { json.decodeFromString<List<String>>(reasoningModelIdsJson).toSet() }.getOrDefault(emptySet()),
+                toolCallingModelIds = runCatching { json.decodeFromString<List<String>>(toolCallingModelIdsJson).toSet() }.getOrDefault(emptySet()),
                 defaultModelId = defaultModelId,
                 connectionState = ProviderConnectionState.UNKNOWN,
                 usageTodayCallCount = if (lastResetEpochDay != currentEpochDay()) 0 else usageTodayCallCount,

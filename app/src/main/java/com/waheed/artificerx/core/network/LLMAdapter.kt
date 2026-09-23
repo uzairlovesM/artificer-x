@@ -47,11 +47,26 @@ sealed class ConnectionTestResult {
     ) : ConnectionTestResult()
 }
 
+enum class ModelCapabilityEvidence {
+    CONFIRMED,
+    INFERRED,
+    UNKNOWN,
+}
+
 data class RemoteModelInfo(
     val id: String,
+    val displayName: String? = null,
+    val description: String? = null,
     val supportsVision: Boolean,
+    val visionEvidence: ModelCapabilityEvidence = ModelCapabilityEvidence.UNKNOWN,
     val supportsToolCalling: Boolean,
+    val toolCallingEvidence: ModelCapabilityEvidence = ModelCapabilityEvidence.UNKNOWN,
+    val supportsReasoning: Boolean = false,
+    val reasoningEvidence: ModelCapabilityEvidence = ModelCapabilityEvidence.UNKNOWN,
     val contextWindow: Int?,
+    val inputModalities: List<String> = emptyList(),
+    val outputModalities: List<String> = emptyList(),
+    val supportedParameters: List<String> = emptyList(),
 )
 
 @Serializable
@@ -60,6 +75,21 @@ internal data class ModelListResponseDto(
 )
 
 @Serializable
+internal data class ModelArchitectureDto(
+    @kotlinx.serialization.SerialName("input_modalities") val inputModalities: List<String> = emptyList(),
+    @kotlinx.serialization.SerialName("output_modalities") val outputModalities: List<String> = emptyList(),
+    val modality: String? = null,
+)
+
+@Serializable
 internal data class ModelDto(
     val id: String,
+    val name: String? = null,
+    val description: String? = null,
+    val architecture: ModelArchitectureDto? = null,
+    @kotlinx.serialization.SerialName("input_modalities") val inputModalities: List<String> = emptyList(),
+    @kotlinx.serialization.SerialName("output_modalities") val outputModalities: List<String> = emptyList(),
+    val modalities: List<String> = emptyList(),
+    @kotlinx.serialization.SerialName("supported_parameters") val supportedParameters: List<String> = emptyList(),
+    @kotlinx.serialization.SerialName("context_length") val contextLength: Int? = null,
 )

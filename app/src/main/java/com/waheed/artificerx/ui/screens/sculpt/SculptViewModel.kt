@@ -96,11 +96,10 @@ class SculptViewModel
             _uiState.update { it.copy(brushStrength = strength.coerceIn(0.05f, 2f)) }
         }
 
-        /** Called from the SurfaceView's touch handler once a screen-space
-         *  drag has been ray-cast into a 3D world-space hit point (the
-         *  raycast itself happens in SculptSurfaceView using the camera's
-         *  current view-projection matrix, since that math needs to live
-         *  next to Filament's live camera state). */
+        /** Applies one manual sculpt operation to a caller-provided world-space
+         *  point. The current Compose viewport supplies mesh-derived points
+         *  directly; a future GPU raycaster can feed the same method without
+         *  changing the editing/state layer. */
         fun applyManualStroke(hitPoint: Vec3) {
             val meshId = _uiState.value.activeMeshId ?: return
             val mesh = sceneStore.getMesh(meshId) ?: return

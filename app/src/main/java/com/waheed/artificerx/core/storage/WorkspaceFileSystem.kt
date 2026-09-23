@@ -34,6 +34,9 @@ class WorkspaceFileSystem @Inject constructor(@ApplicationContext private val co
 
     fun projectDir(projectId: String): File = roots.projects.resolve(safeSegment(projectId)).also { it.mkdirs() }
 
+    /** Returns the project directory without creating it, for safe cleanup and inspection. */
+    fun existingProjectDir(projectId: String): File = roots.projects.resolve(safeSegment(projectId))
+
     fun threadDir(threadId: String): File = roots.works.resolve("threads").resolve(safeSegment(threadId)).also { it.mkdirs() }
 
     fun threadArtifactsDir(threadId: String): File = threadDir(threadId).resolve("artifacts").also { it.mkdirs() }

@@ -2,13 +2,14 @@ package com.waheed.artificerx.core.render
 
 import android.graphics.Bitmap
 import android.util.Base64
+import java.io.IOException
 import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * Section 156 vision-feedback loop: encodes the composited canvas as a
- * base64 PNG data-URL payload the Reasoning Brain can attach as an
+ * base64 JPEG payload the Reasoning Brain can attach as an
  * image_url content part in its next request, letting it literally see
  * what it just drew. Downscales before encoding — full-resolution
  * canvas snapshots would blow past most free-tier providers' payload
@@ -24,11 +25,23 @@ class CanvasSnapshotEncoder
             maxDimensionPx: Int = 640,
         ): String {
             val scaled = downscaleIfNeeded(bitmap, maxDimensionPx)
-            val outputStream = ByteArrayOutputStream()
-            scaled.compress(Bitmap.CompressFormat.JPEG, 82, outputStream)
-            val bytes = outputStream.toByteArray()
-            if (scaled !== bitmap) scaled.recycle()
-            return Base64.encodeToString(bytes, Base64.NO_WRAP)
+            try {
+                val qualities = intArrayOf(82, 72, 62, 52, 42)
+                var encoded: ByteArray? = null
+                for (quality in qualities) {
+                    val outputStream = ByteArrayOutputStream()
+                    if (!scaled.compress(Bitmap.CompressFormat.JPEG, quality, outputStream)) continue
+                    val candidate = outputStream.toByteArray()
+                    if (candidate.size <= MAX_VISION_JPEG_BYTES) {
+                        encoded = candidate
+                        break
+                    }
+                }
+                val bytes = encoded ?: throw IOException("Canvas vision snapshot exceeds the ${MAX_VISION_JPEG_BYTES / 1024} KiB payload limit")
+                return Base64.encodeToString(bytes, Base64.NO_WRAP)
+            } finally {
+                if (scaled !== bitmap) scaled.recycle()
+            }
         }
 
         private fun downscaleIfNeeded(
@@ -41,5 +54,9 @@ class CanvasSnapshotEncoder
             val newWidth = (bitmap.width * scale).toInt().coerceAtLeast(1)
             val newHeight = (bitmap.height * scale).toInt().coerceAtLeast(1)
             return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+        }
+
+        private companion object {
+            const val MAX_VISION_JPEG_BYTES = 1_500_000
         }
     }

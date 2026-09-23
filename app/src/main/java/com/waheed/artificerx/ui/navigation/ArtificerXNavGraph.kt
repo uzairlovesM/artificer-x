@@ -5,19 +5,19 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -166,17 +166,12 @@ fun ArtificerXNavGraph(
         }
 
         composable(Destinations.AGENT_CHAT) { backStackEntry ->
-            val parentEntry =
-                remember(backStackEntry) {
-                    navController.getBackStackEntry(Destinations.STUDIO)
-                }
-            val studioViewModel: com.waheed.artificerx.ui.screens.canvas.StudioViewModel =
-                androidx.hilt.navigation.compose
-                    .hiltViewModel(parentEntry)
-            AgentChatScreen(
-                onBack = { navController.popBackStack() },
-                studioViewModel = studioViewModel,
-            )
+            StudioBoundRoute(navController, backStackEntry) { studioViewModel ->
+                AgentChatScreen(
+                    onBack = { navController.popBackStack() },
+                    studioViewModel = studioViewModel,
+                )
+            }
         }
 
         composable(
@@ -260,20 +255,45 @@ fun ArtificerXNavGraph(
             )
         }
 
-        composable(Destinations.PRO_ART_STUDIO) {
-            val parent = remember(Destinations.STUDIO) { navController.getBackStackEntry(Destinations.STUDIO) }
-            val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent)
-            ProArtStudioScreen(vm, onBack = {navController.popBackStack()}, onBrushes = {navController.navigate(Destinations.BRUSH_LAB)}, onLayers = {navController.navigate(Destinations.LAYER_LAB)}, onFilters = {navController.navigate(Destinations.FILTER_LAB)}, onRulers = {navController.navigate(Destinations.RULER_LAB)}, onAnimation = {navController.navigate(Destinations.ANIMATION_LAB)}, onMaterials = {navController.navigate(Destinations.MATERIAL_LAB)}, onManga = {navController.navigate(Destinations.MANGA_PAGE_LAB)}, onColor = {navController.navigate(Destinations.COLOR_STUDIO)}, onText = {navController.navigate(Destinations.TEXT_STUDIO)}, onReference = {navController.navigate(Destinations.REFERENCE_STUDIO)})
+        composable(Destinations.PRO_ART_STUDIO) { backStackEntry ->
+            StudioBoundRoute(navController, backStackEntry) { vm ->
+                ProArtStudioScreen(
+                    vm,
+                    onBack = { navController.popBackStack() },
+                    onBrushes = { navController.navigate(Destinations.BRUSH_LAB) },
+                    onLayers = { navController.navigate(Destinations.LAYER_LAB) },
+                    onFilters = { navController.navigate(Destinations.FILTER_LAB) },
+                    onRulers = { navController.navigate(Destinations.RULER_LAB) },
+                    onAnimation = { navController.navigate(Destinations.ANIMATION_LAB) },
+                    onMaterials = { navController.navigate(Destinations.MATERIAL_LAB) },
+                    onManga = { navController.navigate(Destinations.MANGA_PAGE_LAB) },
+                    onColor = { navController.navigate(Destinations.COLOR_STUDIO) },
+                    onText = { navController.navigate(Destinations.TEXT_STUDIO) },
+                    onReference = { navController.navigate(Destinations.REFERENCE_STUDIO) },
+                )
+            }
         }
-        composable(Destinations.BRUSH_LAB) { val parent = remember(Destinations.STUDIO){navController.getBackStackEntry(Destinations.STUDIO)}; val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent); BrushLabScreen(vm, { navController.popBackStack() }, { navController.navigate(Destinations.CUSTOM_BRUSH_DESIGNER) }) }
-        composable(Destinations.LAYER_LAB) { val parent = remember(Destinations.STUDIO){navController.getBackStackEntry(Destinations.STUDIO)}; val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent); LayerLabScreen(vm, {navController.popBackStack()}) }
-        composable(Destinations.FILTER_LAB) { val parent = remember(Destinations.STUDIO){navController.getBackStackEntry(Destinations.STUDIO)}; val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent); FilterLabScreen(vm, {navController.popBackStack()}) }
-        composable(Destinations.RULER_LAB) { RulerLabScreen{navController.popBackStack()} }
-        composable(Destinations.ANIMATION_LAB) { AnimationLabScreen{navController.popBackStack()} }
-        composable(Destinations.MATERIAL_LAB) { MaterialLabScreen{navController.popBackStack()} }
-        composable(Destinations.MANGA_PAGE_LAB) { MangaPageLabScreen{navController.popBackStack()} }
-        composable(Destinations.COLOR_STUDIO) { val parent = remember(Destinations.STUDIO){navController.getBackStackEntry(Destinations.STUDIO)}; val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent); ColorStudioScreen(vm, {navController.popBackStack()}) }
-        composable(Destinations.TEXT_STUDIO) { val parent = remember(Destinations.STUDIO){navController.getBackStackEntry(Destinations.STUDIO)}; val vm: com.waheed.artificerx.ui.screens.canvas.StudioViewModel = androidx.hilt.navigation.compose.hiltViewModel(parent); TextStudioScreen(vm, {navController.popBackStack()}) }
+        composable(Destinations.BRUSH_LAB) { backStackEntry ->
+            StudioBoundRoute(navController, backStackEntry) { vm ->
+                BrushLabScreen(vm, { navController.popBackStack() }, { navController.navigate(Destinations.CUSTOM_BRUSH_DESIGNER) })
+            }
+        }
+        composable(Destinations.LAYER_LAB) { backStackEntry ->
+            StudioBoundRoute(navController, backStackEntry) { vm -> LayerLabScreen(vm, { navController.popBackStack() }) }
+        }
+        composable(Destinations.FILTER_LAB) { backStackEntry ->
+            StudioBoundRoute(navController, backStackEntry) { vm -> FilterLabScreen(vm, { navController.popBackStack() }) }
+        }
+        composable(Destinations.RULER_LAB) { RulerLabScreen { navController.popBackStack() } }
+        composable(Destinations.ANIMATION_LAB) { AnimationLabScreen { navController.popBackStack() } }
+        composable(Destinations.MATERIAL_LAB) { MaterialLabScreen { navController.popBackStack() } }
+        composable(Destinations.MANGA_PAGE_LAB) { MangaPageLabScreen { navController.popBackStack() } }
+        composable(Destinations.COLOR_STUDIO) { backStackEntry ->
+            StudioBoundRoute(navController, backStackEntry) { vm -> ColorStudioScreen(vm, { navController.popBackStack() }) }
+        }
+        composable(Destinations.TEXT_STUDIO) { backStackEntry ->
+            StudioBoundRoute(navController, backStackEntry) { vm -> TextStudioScreen(vm, { navController.popBackStack() }) }
+        }
         composable(Destinations.REFERENCE_STUDIO) { ReferenceStudioScreen{navController.popBackStack()} }
         composable(Destinations.AUTOMATION_CENTER) { AutomationCenterScreen(onBack = { navController.popBackStack() }) }
         composable(Destinations.WORKSPACE_SEARCH_ADVANCED) { WorkspaceSearchScreen(onBack = { navController.popBackStack() }) }
@@ -289,9 +309,17 @@ fun ArtificerXNavGraph(
         ) }
         composable(Destinations.SYSTEM_OBSERVATORY) { SystemObservatoryScreen { navController.popBackStack() } }
         composable(Destinations.CUSTOM_BRUSH_DESIGNER) {
-            val activity = androidx.activity.compose.LocalActivity.current!!
-            val ep = androidx.compose.runtime.remember { dagger.hilt.android.EntryPointAccessors.fromActivity(activity, CustomBrushEntryPoint::class.java) }
-            CustomBrushDesignerScreen(ep.store(), onBack = { navController.popBackStack() })
+            val activity = androidx.activity.compose.LocalActivity.current
+            if (activity == null) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Custom brush studio requires an Android activity context.")
+                }
+            } else {
+                val ep = androidx.compose.runtime.remember(activity) {
+                    dagger.hilt.android.EntryPointAccessors.fromActivity(activity, CustomBrushEntryPoint::class.java)
+                }
+                CustomBrushDesignerScreen(ep.store(), onBack = { navController.popBackStack() })
+            }
         }
         composable(Destinations.AGENT_WORKBENCH) { AgentWorkbenchScreen({navController.popBackStack()}, {navController.navigate(Destinations.AGENT_CHAT)}, {navController.navigate(Destinations.TOOL_UNIVERSE)}) }
         composable(Destinations.PERMISSIONS_STORAGE) { PermissionsStorageScreen{navController.popBackStack()} }
@@ -310,17 +338,12 @@ fun ArtificerXNavGraph(
         }
 
         composable(Destinations.SHOW_PROCESS) { backStackEntry ->
-            val parentEntry =
-                remember(backStackEntry) {
-                    navController.getBackStackEntry(Destinations.STUDIO)
-                }
-            val studioViewModel: com.waheed.artificerx.ui.screens.canvas.StudioViewModel =
-                androidx.hilt.navigation.compose
-                    .hiltViewModel(parentEntry)
-            com.waheed.artificerx.ui.screens.canvas.TimelapseScreen(
-                viewModel = studioViewModel,
-                onBack = { navController.popBackStack() },
-            )
+            StudioBoundRoute(navController, backStackEntry) { studioViewModel ->
+                com.waheed.artificerx.ui.screens.canvas.TimelapseScreen(
+                    viewModel = studioViewModel,
+                    onBack = { navController.popBackStack() },
+                )
+            }
         }
 
         composable(Destinations.PROJECT_GALLERY) {
@@ -518,34 +541,26 @@ fun ArtificerXNavGraph(
         }
     }
 }
-
-/**
- * Dev-safe stand-in for any route whose real screen hasn't landed yet.
- * Renders the brand background + a centered title so the graph is
- * always navigable and visually on-theme during incremental builds,
- * instead of a route-not-found crash.
- */
 @Composable
-private fun PlaceholderScreen(title: String) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
-            Text(
-                text = "Coming in a later build phase",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp),
-            )
+private fun StudioBoundRoute(
+    navController: NavHostController,
+    backStackEntry: androidx.navigation.NavBackStackEntry,
+    content: @Composable (com.waheed.artificerx.ui.screens.canvas.StudioViewModel) -> Unit,
+) {
+    val parentEntry = remember(backStackEntry) {
+        runCatching { navController.getBackStackEntry(Destinations.STUDIO) }.getOrNull()
+    }
+    if (parentEntry == null) {
+        LaunchedEffect(Unit) {
+            navController.navigate(Destinations.STUDIO) { launchSingleTop = true }
         }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+    } else {
+        val studioViewModel: com.waheed.artificerx.ui.screens.canvas.StudioViewModel =
+            androidx.hilt.navigation.compose.hiltViewModel(parentEntry)
+        content(studioViewModel)
     }
 }
+

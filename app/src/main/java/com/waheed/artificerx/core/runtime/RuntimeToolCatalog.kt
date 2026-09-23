@@ -68,8 +68,9 @@ object RuntimeToolCatalog {
 
     @Synchronized
     fun uninstall(name: String): Boolean {
-        val removed = tools.remove(name) != null
-        root?.let { File(it, "$name.json").delete() }
+        val normalized = name.trim().lowercase()
+        val removed = tools.remove(normalized) != null
+        root?.let { File(it, "$normalized.json").delete() }
         return removed
     }
 
@@ -77,6 +78,9 @@ object RuntimeToolCatalog {
         if (!Regex("^runtime_[a-z][a-z0-9_]{2,63}$").matches(spec.name.lowercase())) return "Runtime tool names must match runtime_[a-z][a-z0-9_]{2,63}."
         if (spec.description.isBlank() || spec.description.length > 600) return "Runtime tool description must be 1..600 characters."
         if (spec.operation !in SUPPORTED_OPERATIONS) return "Unsupported runtime operation '${spec.operation}'. Supported: ${SUPPORTED_OPERATIONS.joinToString()}."
+        if (spec.inputSchemaJson.length > MAX_SCHEMA_CHARS) return "input_schema_json is too large."
+        if (spec.config.entries.sumOf { it.key.length + it.value.length } > MAX_CONFIG_CHARS) return "Runtime tool config is too large."
+        if (spec.config.keys.any { it.length > 120 } || spec.config.values.any { it.length > 8_000 }) return "Runtime tool config contains an oversized key/value."
         val schema = runCatching { Json.parseToJsonElement(spec.inputSchemaJson) }.getOrNull()
             ?: return "input_schema_json must be valid JSON."
         if (schema !is JsonObject || schema["type"]?.jsonPrimitive?.content != "object") return "input_schema_json must be a JSON object schema."
@@ -87,6 +91,7 @@ object RuntimeToolCatalog {
         tools.clear()
         val dir = root ?: return
         dir.listFiles { f -> f.isFile && f.extension == "json" }.orEmpty().forEach { file ->
+            if (file.length() > MAX_SCHEMA_CHARS + MAX_CONFIG_CHARS) return@forEach
             runCatching { json.decodeFromString(RuntimeToolSpec.serializer(), file.readText()) }
                 .getOrNull()
                 ?.let { spec -> if (validate(spec) == null) tools[spec.name] = spec }
@@ -99,6 +104,9 @@ object RuntimeToolCatalog {
     }
 
     const val INSTALL_TOOL = "install_runtime_tool"
+    private const val MAX_SCHEMA_CHARS = 100_000
+    private const val MAX_CONFIG_CHARS = 50_000
+
     val SUPPORTED_OPERATIONS = setOf(
         "WRITE_FILE", "READ_FILE", "LIST_DIRECTORY", "REPLACE_TEXT",
         "COPY_FILE", "MOVE_FILE", "DELETE_FILE", "HASH_FILE", "HTTP_GET", "RUN_COMMAND",

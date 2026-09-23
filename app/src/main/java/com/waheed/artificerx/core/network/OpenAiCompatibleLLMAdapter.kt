@@ -63,7 +63,7 @@ class OpenAiCompatibleLLMAdapter
                         val latency = System.currentTimeMillis() - startedAt
                         when (response.code) {
                             in 200..299 -> {
-                                val body = response.body?.string().orEmpty()
+                                val body = readResponseText(response, MAX_RESPONSE_CHARS)
                                 val parsed =
                                     runCatching {
                                         json.decodeFromString<ModelListResponseDto>(body)
@@ -114,20 +114,47 @@ class OpenAiCompatibleLLMAdapter
                         if (!response.isSuccessful) {
                             return@withContext Result.failure(IOException("HTTP ${response.code}"))
                         }
-                        val body = response.body?.string().orEmpty()
+                        val body = readResponseText(response, MAX_RESPONSE_CHARS)
                         val parsed = json.decodeFromString<ModelListResponseDto>(body)
-                        Result.success(
-                            parsed.data.map { dto ->
-                                RemoteModelInfo(
-                                    id = dto.id,
-                                    supportsVision =
-                                        dto.id.contains("vl", ignoreCase = true) ||
-                                            dto.id.contains("vision", ignoreCase = true),
-                                    supportsToolCalling = true,
-                                    contextWindow = null,
-                                )
-                            },
-                        )
+                        var models = parsed.data.map { dto -> ModelCapabilityResolver.fromOpenRouter(dto) }
+
+                        // OpenRouter documents architecture.input_modalities as the source of truth,
+                        // and also exposes a first-class `input_modalities=image` catalog filter.
+                        // Cross-check that filtered catalog so a provider response that omits modality
+                        // fields on individual model records does not silently turn a real VLM into a
+                        // text-only model inside Artificer-X. This secondary request is best-effort and
+                        // only runs against OpenRouter URLs; other OpenAI-compatible providers keep their
+                        // normal single /models request.
+                        if (baseUrl.contains("openrouter.ai", ignoreCase = true) && models.isNotEmpty()) {
+                            runCatching {
+                                val imageUrl = response.request.url.newBuilder()
+                                    .addQueryParameter("input_modalities", "image")
+                                    .build()
+                                val imageRequest = request.newBuilder().url(imageUrl).build()
+                                client.newCall(imageRequest).execute().use { imageResponse ->
+                                    if (imageResponse.isSuccessful) {
+                                        val imageBody = readResponseText(imageResponse, MAX_RESPONSE_CHARS)
+                                        val imageParsed = json.decodeFromString<ModelListResponseDto>(imageBody)
+                                        val visionIds = imageParsed.data.map { it.id }.toSet()
+                                        if (visionIds.isNotEmpty()) {
+                                            models = models.map { info ->
+                                                if (info.id in visionIds && !info.supportsVision) {
+                                                    info.copy(
+                                                        supportsVision = true,
+                                                        visionEvidence = ModelCapabilityEvidence.CONFIRMED,
+                                                        inputModalities = (info.inputModalities + "image").distinct(),
+                                                    )
+                                                } else {
+                                                    info
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Result.success(models)
                     }
                 } catch (e: IOException) {
                     Result.failure(e)
@@ -135,4 +162,24 @@ class OpenAiCompatibleLLMAdapter
                     Result.failure(e)
                 }
             }
+        private fun readResponseText(response: okhttp3.Response, maxChars: Int): String {
+            val body = response.body ?: return ""
+            if (body.contentLength() > maxChars.toLong() * 2L) return ""
+            return body.charStream().buffered().use { reader ->
+                val out = StringBuilder(minOf(maxChars, 16 * 1024))
+                val buffer = CharArray(8 * 1024)
+                while (out.length < maxChars) {
+                    val n = reader.read(buffer, 0, minOf(buffer.size, maxChars - out.length))
+                    if (n < 0) break
+                    out.append(buffer, 0, n)
+                }
+                out.toString()
+            }
+        }
+
+
+        private companion object {
+            const val MAX_RESPONSE_CHARS = 1_000_000
+        }
+
     }

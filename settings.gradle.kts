@@ -15,3 +15,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "ArtificerX"
 include(":app")
+include(":baselineprofile")
+include(":benchmark")

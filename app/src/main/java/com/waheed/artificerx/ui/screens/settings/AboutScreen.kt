@@ -1,6 +1,7 @@
 package com.waheed.artificerx.ui.screens.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -51,7 +52,7 @@ fun AboutScreen(onBack: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = GoldPrimary, modifier = Modifier.padding(top = 20.dp))
-                Spacer(modifier = Modifier.padding(top = 12.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     "ARTIFICER-X",
                     style = MaterialTheme.typography.headlineMedium,
@@ -64,7 +65,7 @@ fun AboutScreen(onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                Spacer(modifier = Modifier.padding(top = 24.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
                 Column(modifier = Modifier.fillMaxWidth().glassSurface().padding(16.dp)) {
                     Text(
@@ -74,7 +75,7 @@ fun AboutScreen(onBack: () -> Unit) {
                     )
                 }
 
-                Spacer(modifier = Modifier.padding(top = 16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Column(modifier = Modifier.fillMaxWidth().glassSurface().padding(16.dp)) {
                     Text(
@@ -90,7 +91,7 @@ fun AboutScreen(onBack: () -> Unit) {
                     )
                 }
 
-                Spacer(modifier = Modifier.padding(top = 16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     "Personal build — not distributed on Play Store",
                     style = MaterialTheme.typography.labelSmall,

@@ -1,4 +1,5 @@
 package com.waheed.artificerx.ui.screens.onboarding
+import androidx.compose.foundation.layout.width
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -217,7 +218,7 @@ private fun PresetCard(
             ) {
                 Icon(Icons.Filled.Bolt, contentDescription = null, tint = GoldPrimary, modifier = Modifier.size(20.dp))
             }
-            Spacer(modifier = Modifier.padding(start = 12.dp))
+            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = preset.displayName,
@@ -242,7 +243,7 @@ private fun PresetCard(
             colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary, contentColor = MaterialTheme.colorScheme.onPrimary),
         ) {
             Icon(Icons.Filled.Key, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.padding(start = 6.dp))
+            Spacer(modifier = Modifier.width(6.dp))
             Text("Connect ${preset.displayName}")
         }
     }
@@ -272,7 +273,7 @@ private fun CustomProviderCard(onClick: () -> Unit) {
                 modifier = Modifier.size(20.dp),
             )
         }
-        Spacer(modifier = Modifier.padding(start = 12.dp))
+        Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "Custom Provider",
@@ -316,7 +317,7 @@ private fun CredentialEntryContent(
             IconButton(onClick = onBack) {
                 Icon(Icons.Filled.Close, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
             }
-            Spacer(modifier = Modifier.padding(start = 4.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = state.selectedPreset?.displayName ?: "Custom Provider",
                 style = MaterialTheme.typography.headlineSmall,
@@ -439,11 +440,11 @@ private fun ModelSelectionSection(
                     strokeWidth = 2.dp,
                     color = GoldPrimary,
                 )
-                Spacer(modifier = Modifier.padding(start = 8.dp))
+                Spacer(modifier = Modifier.width(8.dp))
                 Text("Fetching models…", color = GoldPrimary)
             } else {
                 Icon(Icons.Filled.Bolt, contentDescription = null, tint = GoldPrimary, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.padding(start = 6.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     if (state.fetchedModels.isEmpty()) "Fetch available models" else "Refresh models (${state.fetchedModels.size} found)",
                     color = GoldPrimary,
@@ -482,7 +483,7 @@ private fun ModelSelectionSection(
                                 tint = if (isSelected) GoldPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                                 modifier = Modifier.size(18.dp),
                             )
-                            Spacer(modifier = Modifier.padding(start = 10.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = model.id,
@@ -490,12 +491,22 @@ private fun ModelSelectionSection(
                                     color = MaterialTheme.colorScheme.onBackground,
                                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                 )
-                                if (model.supportsVision) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        text = "Vision-capable",
+                                        text = com.waheed.artificerx.core.network.ModelCapabilityResolver.evidenceLabel(model.visionEvidence),
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = PurpleAccent,
+                                        color = if (model.supportsVision) PurpleAccent else MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
+                                    if (model.inputModalities.isNotEmpty()) {
+                                        Text(
+                                            "IN: ${model.inputModalities.joinToString("/")}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    if (model.supportsToolCalling) Text("Tools", style = MaterialTheme.typography.labelSmall, color = QualityPass)
+                                    if (model.supportsReasoning) Text("Reasoning", style = MaterialTheme.typography.labelSmall, color = GoldPrimary)
+                                    model.contextWindow?.let { Text("${it / 1000}K ctx", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                 }
                             }
                         }
@@ -512,7 +523,7 @@ private fun ModelSelectionSection(
             label = { Text("Or type a model name manually") },
             supportingText = {
                 Text(
-                    "Optional — leave blank to let the provider use its own default model.",
+                    "The app reads provider model metadata when available. Unknown models remain selectable; they are not falsely labelled as text-only.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             },

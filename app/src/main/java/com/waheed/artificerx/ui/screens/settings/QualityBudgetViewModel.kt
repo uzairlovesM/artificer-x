@@ -30,4 +30,22 @@ class QualityBudgetViewModel
                 agentSettingsDataStore.setPreset(preset)
             }
         }
+
+        fun setThinkingEnabled(enabled: Boolean) {
+            viewModelScope.launch {
+                agentSettingsDataStore.setThinkingEnabled(enabled)
+            }
+        }
+
+        fun setReasoningEffort(effort: String?) {
+            viewModelScope.launch {
+                agentSettingsDataStore.setReasoningEffort(effort)
+            }
+        }
+
+        fun setCustomOverrides(maxIterations: Int?, temperature: Float?) {
+            viewModelScope.launch {
+                agentSettingsDataStore.setCustomOverrides(maxIterations, temperature)
+            }
+        }
     }

@@ -154,11 +154,22 @@ class ToolExecutor
             viewModel: StudioViewModel,
         ): ToolExecutionResult {
             val currentState = viewModel.state.value
-            if (mutatesPixels(parsedCall)) {
+            val safeCall =
+                when (val outcome = CanvasToolSafetyGate.sanitize(
+                    parsedCall,
+                    currentState.canvasWidthPx,
+                    currentState.canvasHeightPx,
+                )) {
+                    is CanvasToolSafetyGate.Outcome.Accepted -> outcome.call
+                    is CanvasToolSafetyGate.Outcome.Rejected ->
+                        return ToolExecutionResult.Failure("Tool safety gate rejected the call: ${outcome.reason}")
+                }
+
+            if (mutatesPixels(safeCall)) {
                 bitmapStore.pushUndoSnapshot()
             }
 
-            val result = when (parsedCall) {
+            val result = when (safeCall) {
                 is ParsedToolCall.CreateLayer -> {
                     viewModel.addLayer()
                     val newState = viewModel.state.value
@@ -204,12 +215,41 @@ class ToolExecutor
                         )
                     } else {
                         ensureBitmapExists(activeLayerId, currentState)
+                        viewModel.setBrushDefaults(
+                            brushType = parsedCall.brushType,
+                            smoothing = parsedCall.smoothing,
+                            spacing = parsedCall.spacing,
+                            scatter = parsedCall.scatter,
+                            pressureSize = parsedCall.pressureSize,
+                            pressureOpacity = parsedCall.pressureOpacity,
+                            taperStart = parsedCall.taperStart,
+                            taperEnd = parsedCall.taperEnd,
+                        )
+                        val effectiveState = viewModel.state.value
+                        val drawingPoints =
+                            com.waheed.artificerx.core.drawing.HumanBrushEngine.applySpatialScatter(
+                                parsedCall.points,
+                                parsedCall.scatter ?: effectiveState.toolState.brushScatter,
+                                parsedCall.strokeWidthPx ?: effectiveState.toolState.brushSizePx,
+                            )
                         val allVariants =
                             mirrorPointsForSymmetry(
-                                parsedCall.points,
-                                currentState.toolState.symmetryMode,
-                                currentState.canvasWidthPx,
-                                currentState.canvasHeightPx,
+                                drawingPoints,
+                                effectiveState.toolState.symmetryMode,
+                                effectiveState.canvasWidthPx,
+                                effectiveState.canvasHeightPx,
+                            )
+                        val pointWeights =
+                            com.waheed.artificerx.core.drawing.HumanBrushEngine.applyDynamics(
+                                points = drawingPoints,
+                                baseWeights = null,
+                                sizePressure = parsedCall.pressureSize ?: effectiveState.toolState.brushSizePressure,
+                                opacityPressure = parsedCall.pressureOpacity ?: effectiveState.toolState.brushOpacityPressure,
+                                smoothing = parsedCall.smoothing ?: effectiveState.toolState.brushSmoothing,
+                                taperStart = parsedCall.taperStart ?: effectiveState.toolState.brushTaperStart,
+                                taperEnd = parsedCall.taperEnd ?: effectiveState.toolState.brushTaperEnd,
+                                wetness = effectiveState.toolState.brushWetness,
+                                bleed = effectiveState.toolState.brushBleed,
                             )
                         var anySuccess = false
                         allVariants.forEach { variant ->
@@ -217,19 +257,21 @@ class ToolExecutor
                                 compositor.drawPathAlphaLocked(
                                     activeLayerId,
                                     variant,
-                                    parsedCall.colorHex ?: currentState.toolState.brushColorHex,
-                                    parsedCall.strokeWidthPx ?: currentState.toolState.brushSizePx,
-                                    parsedCall.opacity ?: currentState.toolState.brushOpacity,
-                                    brushType = parsedCall.brushType ?: currentState.toolState.brushType,
+                                    parsedCall.colorHex ?: effectiveState.toolState.brushColorHex,
+                                    parsedCall.strokeWidthPx ?: effectiveState.toolState.brushSizePx,
+                                    parsedCall.opacity ?: effectiveState.toolState.brushOpacity,
+                                    brushType = parsedCall.brushType ?: effectiveState.toolState.brushType,
+                                    pointWeights = pointWeights,
                                 )
                             } else {
                                 compositor.drawPath(
                                     activeLayerId,
                                     variant,
-                                    parsedCall.colorHex ?: currentState.toolState.brushColorHex,
-                                    parsedCall.strokeWidthPx ?: currentState.toolState.brushSizePx,
-                                    parsedCall.opacity ?: currentState.toolState.brushOpacity,
-                                    brushType = parsedCall.brushType ?: currentState.toolState.brushType,
+                                    parsedCall.colorHex ?: effectiveState.toolState.brushColorHex,
+                                    parsedCall.strokeWidthPx ?: effectiveState.toolState.brushSizePx,
+                                    parsedCall.opacity ?: effectiveState.toolState.brushOpacity,
+                                    brushType = parsedCall.brushType ?: effectiveState.toolState.brushType,
+                                    pointWeights = pointWeights,
                                 )
                             }
                             if (drawn) {
@@ -345,6 +387,7 @@ class ToolExecutor
                         ToolExecutionResult.Failure("No layer with id '${parsedCall.layerId}' exists.")
                     } else {
                         parsedCall.opacity?.let { viewModel.setLayerOpacity(parsedCall.layerId, it) }
+                        parsedCall.blendMode?.let { viewModel.setLayerBlendMode(parsedCall.layerId, it) }
                         parsedCall.isVisible?.let {
                             val layer = currentState.layers.first { l -> l.id == parsedCall.layerId }
                             if (layer.isVisible != it) viewModel.toggleLayerVisibility(parsedCall.layerId)
@@ -593,12 +636,20 @@ class ToolExecutor
                     runtimeToolExecutor.execute(parsedCall.name, args)
                 }
 
+                is ParsedToolCall.SuggestPalette -> {
+                    val colors = com.waheed.artificerx.core.color.ColorPaletteEngine.generate(parsedCall.baseColorHex, parsedCall.harmony, parsedCall.count)
+                    ToolExecutionResult.Success("Palette (${parsedCall.harmony}): ${colors.joinToString(", ")}")
+                }
+
                 is ParsedToolCall.InspectCanvas -> {
                     val snapshot = viewModel.captureSnapshotNow()
+                    val semanticStats = runCatching {
+                        com.waheed.artificerx.core.render.BitmapInspection.summarize(snapshot).asText()
+                    }.getOrElse { "bitmap_inspection_error=${it.message ?: "unknown"}" }
                     val nativeStats = runCatching { nativeRasterCore.analyze(snapshot) }
                         .getOrElse { "native_analysis_error=${it.message ?: "unknown"}" }
                     ToolExecutionResult.Success(
-                        "Snapshot requested\nNATIVE_RASTER=${nativeStats}",
+                        "Snapshot requested\n$semanticStats\nNATIVE_RASTER=$nativeStats",
                         requiresSnapshot = true,
                     )
                 }
@@ -884,6 +935,17 @@ class ToolExecutor
                         colorHex = parsedCall.colorHex,
                         opacity = parsedCall.opacity,
                         hardness = parsedCall.hardness,
+                        flow = parsedCall.flow,
+                        spacing = parsedCall.spacing,
+                        smoothing = parsedCall.smoothing,
+                        scatter = parsedCall.scatter,
+                        pressureSize = parsedCall.pressureSize,
+                        pressureOpacity = parsedCall.pressureOpacity,
+                        taperStart = parsedCall.taperStart,
+                        taperEnd = parsedCall.taperEnd,
+                        textureScale = parsedCall.textureScale,
+                        wetness = parsedCall.wetness,
+                        bleed = parsedCall.bleed,
                     )
                     ToolExecutionResult.Success("Brush defaults updated.", requiresSnapshot = false)
                 }
@@ -953,7 +1015,7 @@ class ToolExecutor
             // succeeded on the backing bitmap but Compose never recomposed,
             // so nothing ever appeared on screen. This is the one call that
             // makes AI-generated output actually visible.
-            if (mutatesPixels(parsedCall) && result is ToolExecutionResult.Success) {
+            if (mutatesPixels(safeCall) && result is ToolExecutionResult.Success) {
                 viewModel.recomposite()
             }
 

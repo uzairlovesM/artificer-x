@@ -1,4 +1,5 @@
 package com.waheed.artificerx.ui.screens.settings
+import androidx.compose.foundation.layout.width
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -187,7 +188,7 @@ private fun ProviderCard(
         }
 
         if (provider.knownDailyQuota != null) {
-            Spacer(modifier = Modifier.padding(top = 10.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             val progress = (provider.usageTodayCallCount.toFloat() / provider.knownDailyQuota).coerceIn(0f, 1f)
             LinearProgressIndicator(
                 progress = { progress },
@@ -195,11 +196,11 @@ private fun ProviderCard(
                 color = if (provider.isNearQuota) QualityWarn else PurpleAccent,
                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
             )
-            Spacer(modifier = Modifier.padding(top = 4.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (provider.isNearQuota) {
                     Icon(Icons.Filled.Warning, contentDescription = null, tint = QualityWarn, modifier = Modifier.size(12.dp))
-                    Spacer(modifier = Modifier.padding(start = 4.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                 }
                 Text(
                     text = "${provider.usageTodayCallCount} / ${provider.knownDailyQuota} calls today",

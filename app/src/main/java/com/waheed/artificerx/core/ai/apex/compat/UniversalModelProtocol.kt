@@ -164,7 +164,7 @@ class UniversalModelProtocol {
     private fun gemini(r: UniversalRequest): String = jsonObject(
         "contents" to r.turns.filter { it.role != "system" }.joinToString(prefix = "[", postfix = "]") { turn -> "{\"role\":${quote(if (turn.role == "assistant") "model" else "user")},\"parts\":[{\"text\":${quote(turn.text.orEmpty())}}]}" },
         "systemInstruction" to (r.system?.let { "{\"parts\":[{\"text\":${quote(it)}}]}" } ?: "null"),
-        "tools" to if (r.tools.isEmpty()) "null" else "[{\"functionDeclarations\":[${r.tools.joinToString { "{\"name\":${quote(it.name)},\"description\":${quote(it.description)},\"parameters\":${it.schemaJson}}" }}]",
+        "tools" to if (r.tools.isEmpty()) "null" else "[{\"functionDeclarations\":[${r.tools.joinToString { "{\"name\":${quote(it.name)},\"description\":${quote(it.description)},\"parameters\":${it.schemaJson}}" }}]}]",
     )
 
     private fun anthropic(r: UniversalRequest): String = jsonObject(

@@ -16,6 +16,7 @@ plugins {
     // directly here to register the root-level `dependencyUpdates`
     // task that dependencyUpdatesReport (below) depends on.
     alias(libs.plugins.versions)
+    alias(libs.plugins.baselineprofile) apply false
     // dependency-analysis is also a project-wide plugin (it needs to
     // see every module's dependency graph at once to give "used
     // transitive dependency" advice), applied directly at root for the

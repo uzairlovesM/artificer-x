@@ -1,4 +1,5 @@
 package com.waheed.artificerx.ui.screens.onboarding
+import androidx.compose.foundation.layout.width
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -217,7 +218,7 @@ private fun FeatureHighlightRow(
                 modifier = Modifier.size(22.dp),
             )
         }
-        Spacer(modifier = Modifier.padding(start = 14.dp))
+        Spacer(modifier = Modifier.width(14.dp))
         Column {
             Text(
                 text = title,

@@ -21,7 +21,12 @@ class FileUtils {
     fun readFileContent(filePath: String): String? {
         val file = File(filePath)
         return if (file.exists()) {
-            file.readText(Charsets.UTF_8)
+            if (file.length() > MAX_READ_FILE_BYTES) {
+                DebugLogger.e("File too large to read safely: $filePath")
+                null
+            } else {
+                file.readText(Charsets.UTF_8)
+            }
         } else {
             DebugLogger.e("File not found: $filePath")
             null
@@ -77,16 +82,20 @@ class FileUtils {
     }
 
     fun mergeFiles(sourcePaths: List<String>, destPath: String): Boolean {
+        if (sourcePaths.size > MAX_MERGE_SOURCES) return false
         val destFile = File(destPath)
         if (!destFile.parentFile.exists()) destFile.parentFile.mkdirs()
         destFile.writeText("", Charsets.UTF_8)
 
+        var totalBytes = 0L
         for (source in sourcePaths) {
-            val content = readFileContent(source)
-            if (content != null) {
-                writeFileContent(destPath, content, append = true)
-            }
+            val sourceFile = File(source)
+            if (!sourceFile.isFile) continue
+            if (totalBytes + sourceFile.length() > MAX_MERGE_OUTPUT_BYTES) return false
+            val content = readFileContent(source) ?: continue
+            if (!writeFileContent(destPath, content, append = true)) return false
+            totalBytes += content.toByteArray(Charsets.UTF_8).size
         }
-        return destFile.exists() && destFile.length() > 0
+        return destFile.exists() && destFile.length() > 0 && destFile.length() <= MAX_MERGE_OUTPUT_BYTES
     }
 }

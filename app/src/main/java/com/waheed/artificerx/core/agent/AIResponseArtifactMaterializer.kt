@@ -30,17 +30,27 @@ class AIResponseArtifactMaterializer @Inject constructor(
         if (threadId.isBlank() || response.isBlank()) return emptyList()
         val results = mutableListOf<ArtifactRef>()
         val seenNames = mutableSetOf<String>()
+        var totalBytes = 0L
         for (match in blockRegex.findAll(response)) {
             val name = match.groupValues[1].trim()
             val content = match.groupValues[2]
             if (name.isBlank() || content.isBlank()) continue
             if (!seenNames.add(name)) continue
+            val contentBytes = content.toByteArray(Charsets.UTF_8)
+            if (contentBytes.size > MAX_BLOCK_BYTES || totalBytes + contentBytes.size > MAX_TOTAL_BYTES) break
+            totalBytes += contentBytes.size
             val mime = mimeFor(name)
             val ref = runCatching { artifactStore.writeText(threadId, name, content, mime, "ai_response_materializer") }.getOrNull()
             if (ref != null) results += ref
-            if (results.size >= 100) break
+            if (results.size >= MAX_ARTIFACTS) break
         }
         return results
+    }
+
+    private companion object {
+        const val MAX_BLOCK_BYTES = 2L * 1024L * 1024L
+        const val MAX_TOTAL_BYTES = 10L * 1024L * 1024L
+        const val MAX_ARTIFACTS = 100
     }
 
     private fun mimeFor(name: String): String = when (name.substringAfterLast('.', "").lowercase()) {

@@ -21,6 +21,7 @@ class ArtifactStore @Inject constructor(
     private val workspaceRepository: ChatWorkspaceRepository,
 ) {
     suspend fun writeFile(threadId: String, fileName: String, bytes: ByteArray, mimeType: String, sourceTool: String? = null): ArtifactRef = withContext(Dispatchers.IO) {
+        require(bytes.size.toLong() <= MAX_FILE_BYTES) { "Artifact exceeds ${MAX_FILE_BYTES / (1024 * 1024)} MB safety limit." }
         val safeName = sanitize(fileName)
         val dir = workspaceFileSystem.threadArtifactsDir(threadId).apply { mkdirs() }
         val file = File(dir, "${UUID.randomUUID()}_$safeName")
@@ -37,7 +38,12 @@ class ArtifactStore @Inject constructor(
         val dir = workspaceFileSystem.threadArtifactsDir(threadId).apply { mkdirs() }
         val safeName = sanitize(fileName).removeSuffix(".zip") + ".zip"
         val file = File(dir, "${UUID.randomUUID()}_$safeName")
-        val safeEntries = entries.filter { it.name.isNotBlank() }.take(2_000)
+        require(entries.none { it.name.isBlank() }) { "ZIP contains a blank entry name." }
+        val safeEntries = entries
+        require(safeEntries.size <= MAX_ZIP_ENTRIES) { "ZIP contains too many entries (max $MAX_ZIP_ENTRIES)." }
+        val totalBytes = safeEntries.sumOf { it.bytes.size.toLong() }
+        require(safeEntries.all { it.bytes.size.toLong() <= MAX_ZIP_ENTRY_BYTES }) { "ZIP contains an entry larger than the safety limit." }
+        require(totalBytes <= MAX_ZIP_TOTAL_BYTES) { "ZIP exceeds the safety size limit." }
         ZipOutputStream(file.outputStream().buffered()).use { zip ->
             safeEntries.forEach { input ->
                 zip.putNextEntry(ZipEntry(sanitizeZipEntry(input.name)))
@@ -69,5 +75,20 @@ class ArtifactStore @Inject constructor(
     private fun ByteArray.sha256(): String = MessageDigest.getInstance("SHA-256").digest(this).joinToString("") { "%02x".format(it) }
 
     private fun sanitize(name: String): String = name.trim().replace(Regex("[^A-Za-z0-9._ -]"), "_").take(120).ifBlank { "artifact" }
-    private fun sanitizeZipEntry(name: String): String = name.replace('\\', '/').split('/').filter { it.isNotBlank() && it != "." && it != ".." }.joinToString("/").ifBlank { "file" }
+    private fun sanitizeZipEntry(name: String): String {
+        val normalized = name.replace('\\', '/').trim('/')
+        require(normalized.indexOf('\u0000') < 0) { "Invalid ZIP entry name" }
+        val parts = normalized.split('/').filter { it.isNotBlank() && it != "." }
+        require(parts.none { it == ".." }) { "Unsafe ZIP entry path" }
+        val clean = parts.joinToString("/")
+        require(clean.isNotBlank() && clean.length <= 180) { "Invalid ZIP entry name" }
+        return clean
+    }
+
+    companion object {
+        private const val MAX_FILE_BYTES = 100L * 1024L * 1024L
+        private const val MAX_ZIP_ENTRIES = 2_000
+        private const val MAX_ZIP_ENTRY_BYTES = 25L * 1024L * 1024L
+        private const val MAX_ZIP_TOTAL_BYTES = 100L * 1024L * 1024L
+    }
 }

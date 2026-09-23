@@ -3,11 +3,14 @@ package com.waheed.artificerx
 import android.Manifest
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,6 +19,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
+import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -24,6 +29,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -104,7 +111,14 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-            CompositionLocalProvider(LocalDeviceRuntimeState provides deviceState) {
+            val windowWidthClass = calculateWindowSizeClass(this@MainActivity).widthSizeClass
+            val reducedMotion = remember { isReducedMotionEnabled() }
+
+            CompositionLocalProvider(
+                LocalDeviceRuntimeState provides deviceState,
+                LocalArtificerXWindowWidthClass provides windowWidthClass,
+                LocalArtificerXMotion provides ArtificerXMotionSettings(reducedMotion = reducedMotion),
+            ) {
                 ArtificerXTheme {
                     ArtificerXRoot(startupViewModel = startupViewModel)
                 }
@@ -139,6 +153,8 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 private fun ArtificerXRoot(startupViewModel: StartupViewModel) {
+    val windowWidthClass = LocalArtificerXWindowWidthClass.current
+    val motion = LocalArtificerXMotion.current
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() }
     val isReady by startupViewModel.isReady.collectAsStateWithLifecycle()
@@ -183,13 +199,27 @@ private fun ArtificerXRoot(startupViewModel: StartupViewModel) {
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
-        AnimatedVisibility(visible = isReady) {
+        AnimatedVisibility(
+            visible = isReady,
+            enter = if (motion.reducedMotion) EnterTransition.None else androidx.compose.animation.fadeIn(),
+            exit = if (motion.reducedMotion) ExitTransition.None else androidx.compose.animation.fadeOut(),
+        ) {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 containerColor = MaterialTheme.colorScheme.background,
                 snackbarHost = { SnackbarHost(snackbarHostState) },
             ) { innerPadding ->
-                Box(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(
+                            horizontal = when (windowWidthClass) {
+                                WindowWidthSizeClass.Expanded -> 20.dp
+                                WindowWidthSizeClass.Medium -> 8.dp
+                                else -> 0.dp
+                            },
+                        ),
+                ) {
                     ArtificerXNavGraph(
                         navController = navController,
                         startDestination =
@@ -205,6 +235,31 @@ private fun ArtificerXRoot(startupViewModel: StartupViewModel) {
             }
         }
     }
+}
+
+/** Runtime adaptive-width contract shared by navigation-aware screens. */
+val LocalArtificerXWindowWidthClass =
+    compositionLocalOf { WindowWidthSizeClass.Compact }
+
+data class ArtificerXMotionSettings(
+    val reducedMotion: Boolean,
+)
+
+val LocalArtificerXMotion =
+    compositionLocalOf { ArtificerXMotionSettings(reducedMotion = false) }
+
+private fun ComponentActivity.isReducedMotionEnabled(): Boolean {
+    val animatorScale = Settings.Global.getFloat(
+        contentResolver,
+        Settings.Global.ANIMATOR_DURATION_SCALE,
+        1f,
+    )
+    val transitionScale = Settings.Global.getFloat(
+        contentResolver,
+        Settings.Global.TRANSITION_ANIMATION_SCALE,
+        1f,
+    )
+    return animatorScale == 0f || transitionScale == 0f
 }
 
 /**

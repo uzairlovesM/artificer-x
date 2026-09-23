@@ -39,14 +39,14 @@ enum class QualityPreset(
     // tool choices over such a long turn). This burns noticeably more
     // free-tier quota per turn than the other presets — that's the
     // honest tradeoff of "heavy", not hidden from the user.
-    DEEP_STUDIO("Deep Studio", maxIterations = 60, temperature = 0.3f, snapshotEveryNCalls = 1),
+    DEEP_STUDIO("Deep Studio", maxIterations = 96, temperature = 0.22f, snapshotEveryNCalls = 1),
 }
 
 data class AgentSettings(
     val qualityPreset: QualityPreset = QualityPreset.BALANCED,
     val customMaxIterations: Int? = null,
     val customTemperature: Float? = null,
-    val thinkingEnabled: Boolean = false,
+    val thinkingEnabled: Boolean = true,
     val reasoningEffortOverride: String? = null,
 ) {
     val effectiveMaxIterations: Int get() = customMaxIterations ?: qualityPreset.maxIterations
@@ -73,7 +73,7 @@ data class AgentSettings(
      *  every other preset so providers that reject an unrecognized
      *  field for models that don't support it aren't sent one
      *  needlessly. */
-    val reasoningEffort: String? get() = reasoningEffortOverride ?: if (thinkingEnabled || qualityPreset == QualityPreset.DEEP_STUDIO) "high" else null
+    val reasoningEffort: String? get() = when { qualityPreset == QualityPreset.DEEP_STUDIO -> "high"; thinkingEnabled -> "high"; else -> reasoningEffortOverride }
 }
 
 /**
@@ -104,7 +104,7 @@ class AgentSettingsDataStore
                         }.getOrDefault(QualityPreset.BALANCED),
                     customMaxIterations = prefs[customMaxIterKey],
                     customTemperature = prefs[customTempKey],
-                    thinkingEnabled = prefs[thinkingKey] ?: false,
+                    thinkingEnabled = prefs[thinkingKey] ?: true,
                     reasoningEffortOverride = prefs[effortKey],
                 )
             }
@@ -118,16 +118,16 @@ class AgentSettingsDataStore
         }
 
         suspend fun setThinkingEnabled(enabled: Boolean) {
-        context.agentSettingsDataStore.edit { prefs -> prefs[thinkingKey] = enabled }
-    }
-
-    suspend fun setReasoningEffort(effort: String?) {
-        context.agentSettingsDataStore.edit { prefs ->
-            if (effort.isNullOrBlank()) prefs.remove(effortKey) else prefs[effortKey] = effort
+            context.agentSettingsDataStore.edit { prefs -> prefs[thinkingKey] = enabled }
         }
-    }
 
-    suspend fun setCustomOverrides(
+        suspend fun setReasoningEffort(effort: String?) {
+            context.agentSettingsDataStore.edit { prefs ->
+                if (effort.isNullOrBlank()) prefs.remove(effortKey) else prefs[effortKey] = effort
+            }
+        }
+
+        suspend fun setCustomOverrides(
             maxIterations: Int?,
             temperature: Float?,
         ) {

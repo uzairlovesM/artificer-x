@@ -29,6 +29,7 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -46,7 +47,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.waheed.artificerx.core.agent.ToolRegistry
 import com.waheed.artificerx.core.diagnostics.FeatureAuditItem
@@ -75,6 +75,18 @@ fun HybridFeatureScreen(
     val healthy = audit.count { it.status.name == "HEALTHY" }
     val score = if (audit.isEmpty()) 100 else (healthy * 100 / audit.size)
     val runtimeCount = RuntimeToolCatalog.definitions().size
+    val fullyHealthy = audit.isNotEmpty() && healthy == audit.size
+    val statusLabel = when {
+        audit.isEmpty() -> "CHECKING"
+        fullyHealthy -> "HEALTHY"
+        score >= 75 -> "ATTENTION"
+        else -> "DEGRADED"
+    }
+    val statusColor = when {
+        fullyHealthy -> QualityPass
+        score >= 75 -> QualityWarn
+        else -> QualityFail
+    }
     val featureAccent = when {
         title.contains("art", true) || title.contains("canvas", true) -> Icons.Filled.AutoAwesome
         title.contains("security", true) || title.contains("permission", true) -> Icons.Filled.Security
@@ -114,7 +126,16 @@ fun HybridFeatureScreen(
                                     Text(title, style = MaterialTheme.typography.headlineSmall)
                                     Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                AssistChip(onClick = {}, label = { Text("LIVE") }, leadingIcon = { Icon(Icons.Filled.CheckCircle, null, modifier = Modifier.size(16.dp)) })
+                                Surface(
+                                    shape = RoundedCornerShape(50),
+                                    color = statusColor.copy(alpha = 0.14f),
+                                ) {
+                                    Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(if (fullyHealthy) Icons.Filled.CheckCircle else Icons.Filled.Warning, contentDescription = null, tint = statusColor, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.size(6.dp))
+                                        Text(statusLabel, style = MaterialTheme.typography.labelMedium, color = statusColor)
+                                    }
+                                }
                             }
                             LinearProgressIndicator(progress = { score / 100f }, modifier = Modifier.fillMaxWidth())
                             Text("Capability health $score% • ${ToolRegistry.ALL_TOOLS.size} agent capabilities • $runtimeCount persistent runtime extensions", style = MaterialTheme.typography.labelMedium)
@@ -181,7 +202,7 @@ private fun MetricCard(label: String, value: String, accent: androidx.compose.ui
 
 @Composable
 private fun AuditCard(item: FeatureAuditItem) {
-    val healthy = item.status.name == "HEALTHY"
+    val healthy = item.status == com.waheed.artificerx.core.diagnostics.AuditStatus.HEALTHY
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

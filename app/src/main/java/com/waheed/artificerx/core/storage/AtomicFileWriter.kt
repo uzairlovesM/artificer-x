@@ -20,5 +20,13 @@ class AtomicFileWriter {
         }
     }
 
-    fun read(target: File): ByteArray = FileInputStream(target).use { it.readBytes() }
+    fun read(target: File, maxBytes: Long = DEFAULT_MAX_READ_BYTES): ByteArray {
+        require(target.isFile) { "File not found: ${target.path}" }
+        require(target.length() <= maxBytes) { "File exceeds the safe read limit of $maxBytes bytes" }
+        return FileInputStream(target).use { it.readBytes() }
+    }
+
+    private companion object {
+        const val DEFAULT_MAX_READ_BYTES = 100L * 1024L * 1024L
+    }
 }

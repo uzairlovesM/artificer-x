@@ -70,27 +70,40 @@ class WebSearcher
             query: String,
             maxResults: Int = 6,
         ): WebSearchResult {
+            val normalizedQuery = query.trim()
+            if (normalizedQuery.isBlank()) return WebSearchResult.NoResults("")
+            val safeMaxResults = maxResults.coerceIn(1, 20)
             val request =
                 runCatching {
                     Request
                         .Builder()
-                        .url("https://html.duckduckgo.com/html/?q=${java.net.URLEncoder.encode(query, "UTF-8")}")
+                        .url("https://html.duckduckgo.com/html/?q=${java.net.URLEncoder.encode(normalizedQuery, "UTF-8")}")
                         .header("User-Agent", USER_AGENT)
                         .build()
                 }.getOrElse {
-                    return WebSearchResult.NetworkError(query, "Could not build search request: ${it.message}")
+                    return WebSearchResult.NetworkError(normalizedQuery, "Could not build search request: ${it.message}")
                 }
 
             val response =
                 runCatching { client.newCall(request).execute() }
-                    .getOrElse { return WebSearchResult.NetworkError(query, it.message ?: "Search request failed") }
+                    .getOrElse { return WebSearchResult.NetworkError(normalizedQuery, it.message ?: "Search request failed") }
 
             return response.use { resp ->
                 if (!resp.isSuccessful) {
-                    return WebSearchResult.NetworkError(query, "HTTP ${resp.code}")
+                    return WebSearchResult.NetworkError(normalizedQuery, "HTTP ${resp.code}")
                 }
-                val html = resp.body?.string() ?: return WebSearchResult.NetworkError(query, "Empty search response")
-                parseResults(query, html, maxResults)
+                val body = resp.body ?: return WebSearchResult.NetworkError(normalizedQuery, "Empty search response")
+                val html = body.charStream().buffered().use { reader ->
+                    val out = StringBuilder()
+                    val buffer = CharArray(16 * 1024)
+                    while (out.length < MAX_RESPONSE_CHARS) {
+                        val n = reader.read(buffer, 0, minOf(buffer.size, MAX_RESPONSE_CHARS - out.length))
+                        if (n < 0) break
+                        out.append(buffer, 0, n)
+                    }
+                    out.toString()
+                }
+                parseResults(normalizedQuery, html, safeMaxResults)
             }
         }
 
@@ -114,10 +127,11 @@ class WebSearcher
                         val rawHref = linkEl.attr("href")
                         val realUrl = unwrapDuckDuckGoRedirect(rawHref)
                         val snippet = block.selectFirst(".result__snippet")?.text()?.trim().orEmpty()
-                        if (title.isBlank() || realUrl.isBlank()) {
+                        val normalizedUrl = realUrl.trim()
+                        if (title.isBlank() || normalizedUrl.isBlank() || !normalizedUrl.startsWith("http://") && !normalizedUrl.startsWith("https://")) {
                             null
                         } else {
-                            WebSearchResultItem(title = title, url = realUrl, snippet = snippet)
+                            WebSearchResultItem(title = title, url = normalizedUrl, snippet = snippet)
                         }
                     }.take(maxResults)
 
@@ -132,6 +146,7 @@ class WebSearcher
 
         private companion object {
             const val SEARCH_TIMEOUT_SECONDS = 15L
+            const val MAX_RESPONSE_CHARS = 2_000_000
             const val USER_AGENT = "Mozilla/5.0 (Linux; Android 13) ArtificerX/1.0 (personal-use agent)"
         }
     }

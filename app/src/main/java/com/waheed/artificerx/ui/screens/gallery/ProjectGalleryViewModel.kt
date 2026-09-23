@@ -5,11 +5,13 @@ import androidx.lifecycle.viewModelScope
 import com.waheed.artificerx.data.local.db.ProjectEntity
 import com.waheed.artificerx.data.repository.ProjectRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 /**
  * Section 27 Version History / project management screen backing
@@ -22,6 +24,9 @@ class ProjectGalleryViewModel
     constructor(
         private val projectRepository: ProjectRepository,
     ) : ViewModel() {
+        private val _lastError = MutableStateFlow<String?>(null)
+        val lastError = _lastError.asStateFlow()
+
         val projects: StateFlow<List<ProjectEntity>> =
             projectRepository.allProjects.stateIn(
                 scope = viewModelScope,
@@ -31,7 +36,13 @@ class ProjectGalleryViewModel
 
         fun deleteProject(projectId: String) {
             viewModelScope.launch {
-                projectRepository.deleteProject(projectId)
+                _lastError.value = null
+                runCatching { projectRepository.deleteProject(projectId) }
+                    .onFailure { _lastError.value = it.message ?: "Could not delete project." }
             }
+        }
+
+        fun dismissError() {
+            _lastError.value = null
         }
     }

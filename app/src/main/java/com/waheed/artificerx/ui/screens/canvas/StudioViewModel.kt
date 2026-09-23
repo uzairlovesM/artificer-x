@@ -463,7 +463,12 @@ class StudioViewModel
                     ),
                 ),
             )
-            val workingPoints = processed.points
+            val workingPoints =
+                com.waheed.artificerx.core.drawing.HumanBrushEngine.applySpatialScatter(
+                    processed.points,
+                    current.toolState.brushScatter,
+                    current.toolState.brushSizePx,
+                )
             val isEraser = current.toolState.activeTool == DrawToolType.ERASER
             val variants =
                 mirrorPointsForSymmetryPublic(workingPoints, current.toolState.symmetryMode, current.canvasWidthPx, current.canvasHeightPx)
@@ -476,12 +481,23 @@ class StudioViewModel
                 return
             }
 
-            val weights = processed.segmentWeights.takeIf { it.isNotEmpty() }?.map { weight ->
+            val baseWeights = processed.segmentWeights.takeIf { it.isNotEmpty() }?.map { weight ->
                 1f + (weight - 1f) * current.toolState.brushSizePressure
             }
                 ?: if (current.toolState.pressureSimulationEnabled) {
                     simulatePressureWeights(workingPoints)
                 } else null
+            val weights = com.waheed.artificerx.core.drawing.HumanBrushEngine.applyDynamics(
+                points = workingPoints,
+                baseWeights = baseWeights,
+                sizePressure = current.toolState.brushSizePressure,
+                opacityPressure = current.toolState.brushOpacityPressure,
+                smoothing = current.toolState.brushSmoothing,
+                taperStart = current.toolState.brushTaperStart,
+                taperEnd = current.toolState.brushTaperEnd,
+                wetness = current.toolState.brushWetness,
+                bleed = current.toolState.brushBleed,
+            )
             val effectiveOpacity = (current.toolState.brushOpacity * current.toolState.brushFlow).coerceIn(0f, 1f)
             variants.forEach { variant ->
                 if (activeLayer?.alphaLock == true) {
@@ -686,6 +702,17 @@ class StudioViewModel
             colorHex: String? = null,
             opacity: Float? = null,
             hardness: Float? = null,
+            flow: Float? = null,
+            spacing: Float? = null,
+            smoothing: Float? = null,
+            scatter: Float? = null,
+            pressureSize: Float? = null,
+            pressureOpacity: Float? = null,
+            taperStart: Float? = null,
+            taperEnd: Float? = null,
+            textureScale: Float? = null,
+            wetness: Float? = null,
+            bleed: Float? = null,
         ) {
             _state.update { current ->
                 current.copy(
@@ -696,6 +723,17 @@ class StudioViewModel
                             brushColorHex = colorHex ?: current.toolState.brushColorHex,
                             brushOpacity = opacity ?: current.toolState.brushOpacity,
                             brushHardness = hardness ?: current.toolState.brushHardness,
+                            brushFlow = flow?.coerceIn(0f, 1f) ?: current.toolState.brushFlow,
+                            brushSpacing = spacing?.coerceIn(0.01f, 1f) ?: current.toolState.brushSpacing,
+                            brushSmoothing = smoothing?.coerceIn(0f, 1f) ?: current.toolState.brushSmoothing,
+                            brushScatter = scatter?.coerceIn(0f, 1f) ?: current.toolState.brushScatter,
+                            brushSizePressure = pressureSize?.coerceIn(0f, 1f) ?: current.toolState.brushSizePressure,
+                            brushOpacityPressure = pressureOpacity?.coerceIn(0f, 1f) ?: current.toolState.brushOpacityPressure,
+                            brushTaperStart = taperStart?.coerceIn(0f, 1f) ?: current.toolState.brushTaperStart,
+                            brushTaperEnd = taperEnd?.coerceIn(0f, 1f) ?: current.toolState.brushTaperEnd,
+                            brushTextureScale = textureScale?.coerceIn(0.1f, 8f) ?: current.toolState.brushTextureScale,
+                            brushWetness = wetness?.coerceIn(0f, 1f) ?: current.toolState.brushWetness,
+                            brushBleed = bleed?.coerceIn(0f, 1f) ?: current.toolState.brushBleed,
                         ),
                 )
             }
@@ -818,6 +856,22 @@ class StudioViewModel
             _state.update { it.copy(toolState = it.toolState.copy(brushScatter = value.coerceIn(0f, 1f))) }
         }
 
+        fun setBrushTaperStart(value: Float) {
+            _state.update { it.copy(toolState = it.toolState.copy(brushTaperStart = value.coerceIn(0f, 1f))) }
+        }
+
+        fun setBrushTaperEnd(value: Float) {
+            _state.update { it.copy(toolState = it.toolState.copy(brushTaperEnd = value.coerceIn(0f, 1f))) }
+        }
+
+        fun setBrushWetness(value: Float) {
+            _state.update { it.copy(toolState = it.toolState.copy(brushWetness = value.coerceIn(0f, 1f))) }
+        }
+
+        fun setBrushBleed(value: Float) {
+            _state.update { it.copy(toolState = it.toolState.copy(brushBleed = value.coerceIn(0f, 1f))) }
+        }
+
         fun setBrushPressureResponse(sizePressure: Float, opacityPressure: Float) {
             _state.update { current ->
                 current.copy(toolState = current.toolState.copy(
@@ -895,6 +949,9 @@ class StudioViewModel
          *  the layer back to how it looked before the user touched it,
          *  not back one tiny rotation increment at a time. */
         fun beginTransformGesture() {
+            // A transform is continuous, so one pre-gesture checkpoint is
+            // enough to make the whole gesture reversible as a unit.
+            bitmapStore.pushUndoSnapshot()
         }
 
         /** v0.4.30 transform tool: applies one frame's worth of

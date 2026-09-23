@@ -25,7 +25,7 @@ class WorkspaceBundleImporter @Inject constructor(
             var entryCount = 0
             while (true) {
                 val entry = zip.nextEntry ?: break
-                if (++entryCount > MAX_ENTRIES) break
+                if (++entryCount > MAX_ENTRIES) throw IllegalArgumentException("Workspace import contains too many entries.")
                 if (entry.isDirectory || entry.name == "ARTIFACT-MANIFEST.json") {
                     zip.closeEntry()
                     continue
@@ -33,7 +33,7 @@ class WorkspaceBundleImporter @Inject constructor(
                 val name = sanitizeEntry(entry.name)
                 if (name == null) {
                     zip.closeEntry()
-                    continue
+                    throw IllegalArgumentException("Workspace import contains an unsafe entry path.")
                 }
                 val bytes = zip.readBounded(MAX_ENTRY_BYTES) { total + it > MAX_TOTAL_BYTES }
                 total += bytes.size
@@ -49,8 +49,13 @@ class WorkspaceBundleImporter @Inject constructor(
 
     private fun sanitizeEntry(name: String): String? {
         val normalized = name.replace('\\', '/').trim('/')
-        if (normalized.isBlank() || normalized.split('/').any { it == ".." }) return null
-        return normalized.split('/').filter { it.isNotBlank() && it != "." }.joinToString("/").take(180).ifBlank { null }
+        if (normalized.isBlank() || normalized.indexOf('\u0000') >= 0) return null
+        if (normalized.startsWith('/') || normalized.startsWith("\\") || Regex("^[A-Za-z]:").containsMatchIn(normalized)) return null
+        val pieces = normalized.split('/').filter { it.isNotBlank() && it != "." }
+        if (pieces.any { it == ".." } || pieces.size > 32) return null
+        val clean = pieces.joinToString("/")
+        if (clean.length > 180) return null
+        return clean.ifBlank { null }
     }
 
     private fun guessMime(name: String): String = when {

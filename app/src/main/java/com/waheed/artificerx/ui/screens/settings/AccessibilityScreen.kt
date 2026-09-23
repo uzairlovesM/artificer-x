@@ -1,6 +1,7 @@
 package com.waheed.artificerx.ui.screens.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -63,16 +64,16 @@ fun AccessibilityScreen(
                     settings.highContrastMode,
                     viewModel::setHighContrast,
                 )
-                Spacer(modifier = Modifier.padding(top = 12.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 ToggleRow("Reduce Motion", "Minimizes animations and transitions", settings.reduceMotion, viewModel::setReduceMotion)
-                Spacer(modifier = Modifier.padding(top = 12.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 ToggleRow(
                     "Haptic Feedback",
                     "Vibration on tool selection and tool-call events",
                     settings.hapticFeedbackEnabled,
                     viewModel::setHapticFeedback,
                 )
-                Spacer(modifier = Modifier.padding(top = 16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Column(modifier = Modifier.fillMaxWidth().glassSurface().padding(16.dp)) {
                     Text(
@@ -81,7 +82,7 @@ fun AccessibilityScreen(
                         color = MaterialTheme.colorScheme.onBackground,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    Spacer(modifier = Modifier.padding(top = 8.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Slider(
                         value = settings.textScale,
                         onValueChange = { viewModel.setTextScale(it) },

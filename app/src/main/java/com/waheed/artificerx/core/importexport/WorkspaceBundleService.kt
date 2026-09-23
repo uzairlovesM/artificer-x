@@ -53,13 +53,22 @@ class WorkspaceBundleService @Inject constructor(
             add(ArtifactInput("workspace/meta.json", json.encodeToString<WorkspaceBundleMeta>(meta).toByteArray(), "application/json"))
             add(ArtifactInput("workspace/chat.md", transcript.toByteArray(), "text/markdown"))
             add(ArtifactInput("workspace/memories.json", json.encodeToString<List<WorkspaceMemorySnapshot>>(memory.map { WorkspaceMemorySnapshot(it.namespace, it.key, SecretRedaction.redact(it.value), it.updatedAtEpochMillis) }).toByteArray(), "application/json"))
+            var artifactBytes = 0L
             artifacts.forEach { artifact ->
                 val file = File(artifact.path)
-                if (file.isFile && file.length() <= 50L * 1024L * 1024L) {
-                    add(ArtifactInput("artifacts/${artifact.name}", file.readBytes(), artifact.mimeType))
-                }
+                if (!file.isFile) return@forEach
+                val length = file.length()
+                require(length <= MAX_EXPORT_ARTIFACT_BYTES) { "Artifact ${artifact.name} exceeds the safe per-file export limit." }
+                require(artifactBytes + length <= MAX_EXPORT_BYTES) { "Thread export exceeds the safe ${MAX_EXPORT_BYTES / (1024 * 1024)} MB artifact budget." }
+                artifactBytes += length
+                add(ArtifactInput("artifacts/${artifact.name}", file.readBytes(), artifact.mimeType))
             }
         }
         artifactStore.writeZip(threadId, "artificerx-workspace-${threadId.take(8)}.zip", entries, "workspace_export")
+    }
+
+    private companion object {
+        const val MAX_EXPORT_ARTIFACT_BYTES = 25L * 1024L * 1024L
+        const val MAX_EXPORT_BYTES = 80L * 1024L * 1024L
     }
 }

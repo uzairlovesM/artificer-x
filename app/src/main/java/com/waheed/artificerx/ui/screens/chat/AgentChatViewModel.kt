@@ -118,7 +118,7 @@ class AgentChatViewModel
                     if (_uiState.value.activeThreadId.isBlank()) {
                         val savedId = chatSessionDataStore.getActiveThreadId()
                         val savedThreadStillExists = savedId?.let { id -> threads.any { it.id == id } } == true
-                        val id = if (savedThreadStillExists) savedId!! else (threads.firstOrNull()?.id ?: workspaceRepository.createThread())
+                        val id = if (savedThreadStillExists) savedId.orEmpty() else (threads.firstOrNull()?.id ?: workspaceRepository.createThread())
                         if (!savedThreadStillExists) chatSessionDataStore.setActiveThreadId(id)
                         val messages = workspaceRepository.loadMessages(id)
                         val artifactCount = workspaceRepository.observeArtifacts(id).first().size
@@ -142,6 +142,7 @@ class AgentChatViewModel
 
         fun switchThread(threadId: String) {
             if (threadId.isBlank() || threadId == _uiState.value.activeThreadId) return
+            cancelCurrentTurnForNavigation()
             viewModelScope.launch {
                 val messages = workspaceRepository.loadMessages(threadId)
                 val artifactCount = workspaceRepository.observeArtifacts(threadId).first().size
@@ -152,6 +153,7 @@ class AgentChatViewModel
         }
 
         fun newThread() {
+            cancelCurrentTurnForNavigation()
             viewModelScope.launch {
                 val id = workspaceRepository.createThread()
                 chatSessionDataStore.setActiveThreadId(id)
@@ -163,6 +165,7 @@ class AgentChatViewModel
         fun deleteActiveThread() {
             val id = _uiState.value.activeThreadId
             if (id.isBlank()) return
+            cancelCurrentTurnForNavigation()
             viewModelScope.launch {
                 workspaceRepository.deleteThreadForever(id)
                 val fresh = workspaceRepository.createThread()
@@ -395,6 +398,20 @@ class AgentChatViewModel
          *  cancellation handling). Marks the in-progress agent bubble as
          *  no-longer-streaming with a clear "Stopped by user" note rather
          *  than leaving it looking like it's still thinking. */
+        private fun cancelCurrentTurnForNavigation() {
+            currentTurnJob?.cancel()
+            currentTurnJob = null
+            val previousStreamingId = _uiState.value.messages.lastOrNull { it.role == ChatMessageRole.AGENT && it.isStreaming }?.id
+            if (previousStreamingId != null) {
+                updateAgentMessage(previousStreamingId) { message ->
+                    message.copy(isStreaming = false, text = message.text.ifBlank { "Turn stopped because the conversation changed." })
+                }
+            }
+            _uiState.update { it.copy(isAgentResponding = false, attachedImageUri = null, attachedImageBase64 = null) }
+            linkedStudioViewModel?.setAgentActivity(AgentActivityState.IDLE)
+            linkedSculptViewModel?.setAgentActivity(AgentActivityState.IDLE)
+        }
+
         fun stopCurrentTurn() {
             val job = currentTurnJob ?: return
             job.cancel()
@@ -415,7 +432,9 @@ class AgentChatViewModel
                 .lastOrNull { it.role == ChatMessageRole.AGENT }
                 ?.id
 
-        private suspend fun applyAgentEvent(
+        private var thinkingStartedAtEpochMillis: Long? = null
+
+    private suspend fun applyAgentEvent(
             event: AgentEvent,
             agentMessageId: String,
             studioViewModel: StudioViewModel?,
@@ -423,8 +442,18 @@ class AgentChatViewModel
         ) {
             when (event) {
                 is AgentEvent.ThinkingStarted -> {
+                    thinkingStartedAtEpochMillis = System.currentTimeMillis()
                     studioViewModel?.setAgentActivity(AgentActivityState.THINKING)
                     sculptViewModel?.setAgentActivity(AgentActivityState.THINKING)
+                    updateAgentMessage(agentMessageId) { message ->
+                        message.copy(reasoningEffort = _uiState.value.reasoningEffort)
+                    }
+                }
+
+                is AgentEvent.ThinkingSummary -> {
+                    updateAgentMessage(agentMessageId) { message ->
+                        message.copy(reasoningSummaries = (message.reasoningSummaries + event.summary).distinct().takeLast(32))
+                    }
                 }
 
                 is AgentEvent.ToolCallStarted -> {
@@ -504,8 +533,10 @@ class AgentChatViewModel
                         message.copy(
                             text = if (message.text.isBlank()) event.summary else message.text,
                             isStreaming = false,
+                            reasoningDurationMs = thinkingStartedAtEpochMillis?.let { (System.currentTimeMillis() - it).coerceAtLeast(0L) },
                         )
                     }
+                    thinkingStartedAtEpochMillis = null
                     val completedText = _uiState.value.messages.firstOrNull { it.id == agentMessageId }?.text.orEmpty()
                     val materialized = responseArtifactMaterializer.materialize(
                         threadId = _uiState.value.activeThreadId,

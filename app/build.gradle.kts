@@ -13,6 +13,7 @@ plugins {
     alias(libs.plugins.dependency.guard)
     alias(libs.plugins.license.report)
     alias(libs.plugins.dexcount)
+    alias(libs.plugins.baselineprofile)
     // Also applied at root (build.gradle.kts) — the dependency-analysis
     // plugin only auto-registers a `projectHealth` task on a subproject
     // if the plugin is applied to that subproject directly (applying it
@@ -357,6 +358,7 @@ android {
 }
 
 dependencies {
+    baselineProfile(project(":baselineprofile"))
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     // ── AndroidX core ──
@@ -379,6 +381,7 @@ dependencies {
     implementation(libs.bundles.compose.ui)
     implementation(libs.androidx.compose.ui.util)
     implementation(libs.androidx.compose.material3.window.size)
+    implementation(libs.androidx.compose.material3.adaptive)
     implementation(libs.androidx.navigation.compose)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
@@ -464,6 +467,8 @@ dependencies {
     implementation(libs.androidx.graphics.shapes)
     implementation(libs.androidx.palette)
     implementation(libs.androidx.exifinterface)
+    // Explicit Skia/Skiko offscreen engine for heavy raster/export workloads.
+    implementation(libs.skiko.android)
 
     // ── Background work / security ──
     implementation(libs.work.runtime.ktx)

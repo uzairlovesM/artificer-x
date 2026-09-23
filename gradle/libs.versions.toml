@@ -31,18 +31,11 @@ kotlin = "2.3.10"
 ksp = "2.3.10"
 
 # ── AndroidX core ──
-# core-ktx pinned to 1.18.0 (up from 1.15.0) to match what actually
-# resolves on the classpath — a transitive dependency was already
-# pulling in 1.18.0 regardless of this pin, and 1.18.0 requires
-# compileSdk 36 + AGP 8.9.1+ (per its AAR metadata). Previously the
-# TOML claimed 1.15.0 while the resolved jar was silently 1.18.0,
-# which is exactly the mismatch that produced CI's "4 issues were
-# found when checking AAR metadata" failure — the declared version
-# and the enforced-minimum version had quietly diverged. Pinning to
-# match reality, and bumping AGP/compileSdk to match what 1.18.0
-# actually requires, closes that gap from both directions.
-coreKtx = "1.18.0"
-lifecycle = "2.8.7"
+# Current stable AndroidX Core line is 1.19.0 for this private API-36 build.
+# Keep it synchronized with the project compileSdk/AGP contract instead of
+# letting a transitive classpath silently move it forward.
+coreKtx = "1.19.0"
+lifecycle = "2.11.0"
 activityCompose = "1.13.0"
 splashscreen = "1.0.1"
 palette = "1.0.0"
@@ -64,9 +57,9 @@ browser = "1.8.0"
 androidxPreference = "1.2.1"
 
 # ── Compose ──
-# Compose BOM 2026.04.01 maps to the stable Compose 1.11 release line.
-# This is the current verified April 2026 BOM selected for this build.
-composeBom = "2026.04.01"
+# Compose BOM 2026.09.00 maps the stable September 2026 Compose line
+# (UI/runtime/foundation 1.12.1, Material3 1.4.0).
+composeBom = "2026.09.00"
 navigationCompose = "2.9.8"
 
 # ── DI ──
@@ -95,7 +88,7 @@ hiltNavigationCompose = "1.2.0"
 hiltWork = "1.2.0"
 
 # ── Persistence ──
-room = "2.7.1"
+room = "2.8.5"
 datastore = "1.2.1"
 sqlcipher = "4.5.6"
 
@@ -130,7 +123,7 @@ readability4j = "1.0.8"
 
 # ── Camera / media capture ──
 cameraX = "1.6.2"
-media3 = "1.10.1"
+media3 = "1.11.1"
 
 # ── Maps / location ──
 playServicesLocation = "21.3.0"
@@ -164,14 +157,10 @@ lottie = "6.6.2"
 zoomable = "2.6.0"
 graphicsPath = "1.1.0"
 graphicsShapes = "1.1.0"
-# Additional painting/drawing engine support — Section:
-# Painting/drawing. androidx.ink is Google's own Jetpack library for
-# low-latency stylus/finger inking (pressure, tilt, orientation-aware
-# strokes, real-time authoring), announced Oct 2024 — a genuine
-# first-party fit for expanding ARTIFICER-X's canvas brush engine
-# beyond hand-rolled pointerInput/Canvas primitives. Compose's own
-# Canvas is already Skia-backed natively on Android, so no separate
-# Skia binding is needed here.
+# Explicit Skia bindings for heavy offscreen raster/export workloads.
+skikoAndroid = "0.9.43"
+# Painting/drawing stack. AndroidX Ink handles low-latency stylus/finger inking.
+# Skiko adds an explicit offscreen Skia backend for heavy raster/export work.
 inkAuthoring = "1.1.0-alpha07"
 
 # ── Background work / security ──
@@ -204,7 +193,8 @@ espresso = "3.6.1"
 androidxTestRunner = "1.6.2"
 androidxTestRules = "1.6.1"
 uiautomator = "2.3.0"
-androidxBenchmark = "1.4.1"
+androidxBenchmark = "1.5.0"
+baselineProfile = "1.5.0"
 
 # ── Static analysis / quality gates ──
 # UPDATE (2026-09): both bumped to versions confirmed (via web search)
@@ -302,6 +292,7 @@ androidx-compose-foundation = { group = "androidx.compose.foundation", name = "f
 androidx-compose-runtime = { group = "androidx.compose.runtime", name = "runtime" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 androidx-compose-material3-window-size = { group = "androidx.compose.material3", name = "material3-window-size-class" }
+androidx-compose-material3-adaptive = { group = "androidx.compose.material3.adaptive", name = "adaptive", version = "1.3.0" }
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 androidx-navigation-testing = { group = "androidx.navigation", name = "navigation-testing", version.ref = "navigationCompose" }
@@ -399,6 +390,7 @@ androidsvg = { group = "com.caverock", name = "androidsvg-aar", version.ref = "a
 colorpicker-compose = { group = "com.github.skydoves", name = "colorpicker-compose", version.ref = "colorpickerCompose" }
 lottie-compose = { group = "com.airbnb.android", name = "lottie-compose", version.ref = "lottie" }
 zoomable = { group = "net.engawapg.lib", name = "zoomable", version.ref = "zoomable" }
+skiko-android = { group = "org.jetbrains.skiko", name = "skiko-android", version.ref = "skikoAndroid" }
 
 # ── Background work / security ──
 work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }
@@ -515,6 +507,7 @@ kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }
 dependency-guard = { id = "com.dropbox.dependency-guard", version.ref = "dependencyGuard" }
 versions = { id = "io.github.ben-manes.versions", version.ref = "gradleVersionsPlugin" }
 androidx-benchmark = { id = "androidx.benchmark", version.ref = "androidxBenchmark" }
+baselineprofile = { id = "androidx.baselineprofile", version.ref = "baselineProfile" }
 dependency-analysis = { id = "com.autonomousapps.dependency-analysis", version.ref = "dependencyAnalysis" }
 license-report = { id = "com.github.jk1.dependency-license-report", version.ref = "licenseReport" }
 dexcount = { id = "com.getkeepsafe.dexcount", version.ref = "dexcount" }

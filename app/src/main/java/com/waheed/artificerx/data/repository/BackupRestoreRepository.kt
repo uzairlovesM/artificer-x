@@ -1,20 +1,22 @@
 package com.waheed.artificerx.data.repository
 
 import android.content.Context
+import androidx.room.withTransaction
+import com.waheed.artificerx.data.local.db.ArtificerXDatabase
 import com.waheed.artificerx.data.local.db.ProjectDao
 import com.waheed.artificerx.data.local.db.ProjectEntity
 import com.waheed.artificerx.data.local.db.ProjectVersionDao
 import com.waheed.artificerx.data.local.db.ProjectVersionEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
 
 @Serializable
 data class BackupBundle(
@@ -81,6 +83,7 @@ class BackupRestoreRepository
         @ApplicationContext private val context: Context,
         private val projectDao: ProjectDao,
         private val versionDao: ProjectVersionDao,
+        private val database: ArtificerXDatabase,
     ) {
         private val json =
             Json {
@@ -120,13 +123,24 @@ class BackupRestoreRepository
                             )
                         }
 
+                    if (entries.size > MAX_PROJECTS) {
+                        return@withContext BackupResult.Failure("There are more than $MAX_PROJECTS projects; split the workspace before exporting.")
+                    }
+                    val totalVersions = entries.sumOf { it.versions.size.toLong() }
+                    if (totalVersions > MAX_VERSIONS) {
+                        return@withContext BackupResult.Failure("There are more than $MAX_VERSIONS checkpoints; reduce version history before exporting.")
+                    }
+
                     val bundle = BackupBundle(exportedAtEpochMillis = System.currentTimeMillis(), projects = entries)
-                    val bundleJson = json.encodeToString(bundle)
+                    val bundleBytes = json.encodeToString(bundle).toByteArray(Charsets.UTF_8)
+                    if (bundleBytes.size.toLong() > MAX_BACKUP_BYTES) {
+                        return@withContext BackupResult.Failure("Backup exceeds the ${MAX_BACKUP_BYTES / (1024 * 1024)} MB safety limit.")
+                    }
 
                     val backupDir = File(context.getExternalFilesDir(null), "backups")
                     if (!backupDir.exists()) backupDir.mkdirs()
                     val file = File(backupDir, "artificerx_backup_${System.currentTimeMillis()}.json")
-                    file.writeText(bundleJson)
+                    file.writeBytes(bundleBytes)
 
                     BackupResult.ExportSuccess(file.absolutePath, entries.size)
                 }.getOrElse { BackupResult.Failure(it.message ?: "Export failed") }
@@ -136,39 +150,41 @@ class BackupRestoreRepository
             withContext(Dispatchers.IO) {
                 runCatching {
                     val file = File(filePath)
-                    if (!file.exists()) return@withContext BackupResult.Failure("Backup file not found: $filePath")
+                    if (!file.isFile) return@withContext BackupResult.Failure("Backup file not found: $filePath")
+                    if (file.length() > MAX_BACKUP_BYTES) {
+                        return@withContext BackupResult.Failure("Backup exceeds the ${MAX_BACKUP_BYTES / (1024 * 1024)} MB safety limit.")
+                    }
 
-                    val bundle = json.decodeFromString<BackupBundle>(file.readText())
+                    val bundle = json.decodeFromString<BackupBundle>(file.readText(Charsets.UTF_8))
+                    if (bundle.projects.size > MAX_PROJECTS) {
+                        return@withContext BackupResult.Failure("Backup contains more than $MAX_PROJECTS projects.")
+                    }
+                    val totalVersions = bundle.projects.sumOf { it.versions.size.toLong() }
+                    if (totalVersions > MAX_VERSIONS) {
+                        return@withContext BackupResult.Failure("Backup contains more than $MAX_VERSIONS checkpoints.")
+                    }
+
                     var versionCount = 0
-
-                    bundle.projects.forEach { entry ->
-                        projectDao.upsertProject(
-                            ProjectEntity(
-                                id = entry.project.id,
-                                name = entry.project.name,
-                                canvasWidthPx = entry.project.canvasWidthPx,
-                                canvasHeightPx = entry.project.canvasHeightPx,
-                                layersJson = entry.project.layersJson,
-                                activeLayerId = entry.project.activeLayerId,
-                                thumbnailPath = null,
-                                createdAtEpochMillis = entry.project.createdAtEpochMillis,
-                                lastModifiedEpochMillis = entry.project.lastModifiedEpochMillis,
-                                lastOpenedEpochMillis = null,
-                            ),
-                        )
-                        entry.versions.forEach { version ->
-                            versionDao.insertVersion(
-                                ProjectVersionEntity(
-                                    id = version.id,
-                                    projectId = entry.project.id,
-                                    versionLabel = version.versionLabel,
-                                    layersJson = version.layersJson,
+                    database.withTransaction {
+                        bundle.projects.forEach { entry ->
+                            projectDao.upsertProject(
+                                ProjectEntity(
+                                    id = entry.project.id,
+                                    name = entry.project.name,
+                                    canvasWidthPx = entry.project.canvasWidthPx,
+                                    canvasHeightPx = entry.project.canvasHeightPx,
+                                    layersJson = entry.project.layersJson,
+                                    activeLayerId = entry.project.activeLayerId,
                                     thumbnailPath = null,
-                                    triggeredBy = version.triggeredBy,
-                                    createdAtEpochMillis = version.createdAtEpochMillis,
+                                    createdAtEpochMillis = entry.project.createdAtEpochMillis,
+                                    lastModifiedEpochMillis = entry.project.lastModifiedEpochMillis,
+                                    lastOpenedEpochMillis = null,
                                 ),
                             )
-                            versionCount++
+                            entry.versions.forEach { version ->
+                                projectVersionDaoInsert(version, entry.project.id)
+                                versionCount++
+                            }
                         }
                     }
 
@@ -176,9 +192,30 @@ class BackupRestoreRepository
                 }.getOrElse { BackupResult.Failure(it.message ?: "Import failed — file may be corrupted or from an incompatible version") }
             }
 
+
+        private suspend fun projectVersionDaoInsert(version: VersionBackupRecord, projectId: String) {
+            versionDao.insertVersion(
+                ProjectVersionEntity(
+                    id = version.id,
+                    projectId = projectId,
+                    versionLabel = version.versionLabel,
+                    layersJson = version.layersJson,
+                    thumbnailPath = null,
+                    triggeredBy = version.triggeredBy,
+                    createdAtEpochMillis = version.createdAtEpochMillis,
+                ),
+            )
+        }
+
         fun listAvailableBackupFiles(): List<File> {
             val backupDir = File(context.getExternalFilesDir(null), "backups")
             if (!backupDir.exists()) return emptyList()
             return backupDir.listFiles { f -> f.extension == "json" }?.sortedByDescending { it.lastModified() } ?: emptyList()
+        }
+
+        private companion object {
+            const val MAX_BACKUP_BYTES = 50L * 1024L * 1024L
+            const val MAX_PROJECTS = 500
+            const val MAX_VERSIONS = 10_000L
         }
     }

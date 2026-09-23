@@ -466,7 +466,7 @@ class AgentOrchestrator
                         // a snapshot was taken so the tool loop can continue
                         // without silently corrupting every subsequent request.
                         val nextProvider = providers.getOrNull(providerIndex)
-                        if (nextProvider?.supportsVision == true) {
+                        if (nextProvider?.let(com.waheed.artificerx.core.network.ModelCapabilityResolver::effectiveVision) == true) {
                             val snapshotBitmap =
                                 try {
                                     withContext(Dispatchers.Main.immediate) { snapshotProvider.captureSnapshot() }
@@ -584,7 +584,12 @@ class AgentOrchestrator
          *  truth on whether a call succeeds. */
         private suspend fun collectUsableProviders(needs: ModelRoutingPolicy.RequestNeeds): List<AiProviderConfig> {
             val enabled = providerConfigRepository.configs.first().filter { it.isEnabled }
-            return ModelRoutingPolicy.rank(enabled, needs)
+            val ranked = ModelRoutingPolicy.rank(enabled, needs)
+            return ranked.filter { provider ->
+                !needs.vision || com.waheed.artificerx.core.network.ModelCapabilityResolver.effectiveVision(provider)
+            }.ifEmpty {
+                ranked
+            }
         }
 
         private suspend fun systemPromptMessage(
@@ -814,6 +819,11 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
         private companion object {
             const val ARCHIVIST_CONTEXT_MESSAGE_COUNT = 6
             const val MAX_ARCHIVIST_NOTE_LENGTH = 800
+            const val MAX_PROVIDER_RESPONSE_CHARS = 2_000_000
+            const val MAX_STREAM_TEXT_CHARS = 4_000_000
+            const val MAX_TOOL_ARGUMENT_CHARS = 2_000_000
+            const val MAX_REASONING_SUMMARY_BLOCKS = 32
+            const val MAX_REASONING_SUMMARY_CHARS = 1_500
         }
 
         /** Tracks which stage of the optional Critic/Repair loop (Section
@@ -955,6 +965,10 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
                 val delta: StreamToolCallDeltaDto,
             ) : StreamEvent()
 
+            data class ReasoningSummary(
+                val detail: ReasoningDetailDto,
+            ) : StreamEvent()
+
             data class Finished(
                 val reason: String?,
             ) : StreamEvent()
@@ -1020,6 +1034,7 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
             val rawKey = providerConfigRepository.rawKeyFor(provider.keyAlias) ?: return null
             val modelId = provider.defaultModelId ?: defaultModelFor(provider)
 
+            val reasoningSupported = !safeMode && providerSupportsReasoningEffort(provider) && !reasoningEffort.isNullOrBlank()
             val requestBody =
                 ChatCompletionRequest(
                     model = modelId,
@@ -1028,7 +1043,8 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
                     temperature = temperature,
                     maxTokens = null,
                     stream = true,
-                    reasoningEffort = if (providerSupportsReasoningEffort(provider)) reasoningEffort else null,
+                    reasoningEffort = if (reasoningSupported && provider.type == com.waheed.artificerx.domain.model.AiProviderType.GROQ) reasoningEffort else null,
+                    reasoning = if (reasoningSupported && provider.type == com.waheed.artificerx.domain.model.AiProviderType.OPENROUTER) com.waheed.artificerx.core.network.ReasoningRequestDto(effort = reasoningEffort) else null,
                 )
             val bodyJson = json.encodeToString(ChatCompletionRequest.serializer(), requestBody)
             val request =
@@ -1047,7 +1063,7 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
                         try {
                             call.execute().use { response ->
                                 if (!response.isSuccessful) {
-                                    val errorBody = response.body?.string()?.take(1200).orEmpty()
+                                    val errorBody = readResponseText(response, 1200)
                                     trySend(StreamEvent.Failed("HTTP ${response.code}${if (errorBody.isNotBlank()) ": $errorBody" else ""}"))
                                     return@use
                                 }
@@ -1066,6 +1082,11 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
                                             json.decodeFromString(ChatCompletionStreamChunkDto.serializer(), payload)
                                         }.getOrNull() ?: continue
                                     val choice = chunk.choices.firstOrNull() ?: continue
+                                    choice.delta.reasoningDetails?.forEach { detail ->
+                                        if (detail.type.equals("reasoning.summary", ignoreCase = true) || !detail.summary.isNullOrBlank()) {
+                                            trySend(StreamEvent.ReasoningSummary(detail))
+                                        }
+                                    }
                                     val content = choice.delta.content
                                     if (!content.isNullOrEmpty()) {
                                         trySend(StreamEvent.TextDelta(content))
@@ -1092,27 +1113,47 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
             var finishReason: String? = null
             var hadHardFailure = false
             var lastStreamError: String? = null
+            val reasoningDetails = ArrayList<ReasoningDetailDto>(8)
 
             events.collect { streamEvent ->
                 when (streamEvent) {
                     is StreamEvent.TextDelta -> {
-                        textBuilder.append(streamEvent.text)
-                        emit(AgentEvent.AgentTextChunk(streamEvent.text))
+                        if (textBuilder.length + streamEvent.text.length > MAX_STREAM_TEXT_CHARS) {
+                            hadHardFailure = true
+                            lastStreamError = "Provider response exceeded the text safety limit"
+                        } else {
+                            textBuilder.append(streamEvent.text)
+                            emit(AgentEvent.AgentTextChunk(streamEvent.text))
+                        }
+                    }
+                    is StreamEvent.ReasoningSummary -> {
+                        val safe = streamEvent.detail.summary?.ifBlank { streamEvent.detail.text }?.trim().orEmpty().take(MAX_REASONING_SUMMARY_CHARS)
+                        if (safe.isNotBlank() && reasoningDetails.size < MAX_REASONING_SUMMARY_BLOCKS) {
+                            reasoningDetails += streamEvent.detail.copy(summary = safe, text = null, data = null)
+                            emit(AgentEvent.ThinkingSummary(safe, source = provider.displayName))
+                        }
                     }
                     is StreamEvent.ToolCallChunk -> {
                         val acc = toolAccumulators.getOrPut(streamEvent.delta.index) { ToolCallAccumulator() }
                         streamEvent.delta.id?.let { acc.id = it }
                         streamEvent.delta.type?.let { acc.type = it }
                         streamEvent.delta.function?.name?.let { acc.name = it }
-                        streamEvent.delta.function?.arguments?.let { acc.argumentsBuilder.append(it) }
+                        streamEvent.delta.function?.arguments?.let { arguments ->
+                            if (acc.argumentsBuilder.length + arguments.length > MAX_TOOL_ARGUMENT_CHARS) {
+                                hadHardFailure = true
+                                lastStreamError = "Provider tool-call arguments exceeded the safety limit"
+                            } else if (!hadHardFailure) {
+                                acc.argumentsBuilder.append(arguments)
+                            }
+                        }
                     }
                     is StreamEvent.Finished -> finishReason = streamEvent.reason
                     is StreamEvent.Failed -> { hadHardFailure = true; lastStreamError = streamEvent.reason }
                 }
             }
 
-            if (hadHardFailure && textBuilder.isEmpty() && toolAccumulators.isEmpty()) {
-                emit(AgentEvent.Error("${provider.displayName} request failed: ${lastStreamError ?: "unknown stream error"}", isFatal = false))
+            if (hadHardFailure) {
+                emit(AgentEvent.Error("${provider.displayName} request failed: ${lastStreamError ?: "stream safety limit reached"}", isFatal = false))
                 return null
             }
 
@@ -1133,6 +1174,7 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
                     role = "assistant",
                     contentText = if (toolCallDtos.isEmpty()) textBuilder.toString() else null,
                     toolCalls = toolCallDtos.ifEmpty { null },
+                    reasoningDetails = reasoningDetails.ifEmpty { null },
                 )
             return TurnCallResult(assistantMessage, finishReason)
         }
@@ -1200,7 +1242,8 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
                                 val result =
                                     response.use { resp ->
                                         if (!resp.isSuccessful) return@use null
-                                        val responseBody = resp.body?.string() ?: return@use null
+                                        val responseBody = readResponseText(resp, MAX_PROVIDER_RESPONSE_CHARS)
+                                        if (responseBody.isBlank()) return@use null
                                         runCatching {
                                             json.decodeFromString(ChatCompletionResponse.serializer(), responseBody)
                                         }.getOrNull()
@@ -1218,6 +1261,21 @@ Interaction policy: Prefer doing over describing; inspect state before multi-ste
                     )
                 }
             }.getOrNull()
+        }
+
+        private fun readResponseText(response: okhttp3.Response, maxChars: Int): String {
+            val body = response.body ?: return ""
+            if (body.contentLength() > maxChars.toLong() * 2L) return ""
+            return body.charStream().buffered().use { reader ->
+                val out = StringBuilder(minOf(maxChars, 16 * 1024))
+                val buffer = CharArray(8 * 1024)
+                while (out.length < maxChars) {
+                    val n = reader.read(buffer, 0, minOf(buffer.size, maxChars - out.length))
+                    if (n < 0) break
+                    out.append(buffer, 0, n)
+                }
+                out.toString()
+            }
         }
 
         /** CRITICAL FIX (v0.4.30): both hardcoded defaults below were dead

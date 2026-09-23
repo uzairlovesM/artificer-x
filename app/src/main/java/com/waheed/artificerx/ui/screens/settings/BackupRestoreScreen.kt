@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -27,7 +29,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -51,6 +55,7 @@ fun BackupRestoreScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val locale = remember { Locale.getDefault() }
+    var pendingRestore by remember { mutableStateOf<File?>(null) }
 
     Box(
         modifier =
@@ -83,7 +88,7 @@ fun BackupRestoreScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = GoldPrimary, contentColor = MaterialTheme.colorScheme.onPrimary),
                 ) {
                     Icon(Icons.Filled.CloudUpload, contentDescription = null)
-                    Spacer(modifier = Modifier.padding(start = 8.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Export All Projects Now", fontWeight = FontWeight.SemiBold)
                 }
 
@@ -122,11 +127,28 @@ fun BackupRestoreScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(state.availableBackups) { file ->
-                        BackupFileRow(file = file, locale = locale, onRestore = { viewModel.restoreFrom(file) })
+                        BackupFileRow(file = file, locale = locale, onRestore = { pendingRestore = file })
                     }
                 }
             }
         }
+    }
+
+    pendingRestore?.let { file ->
+        AlertDialog(
+            onDismissRequest = { pendingRestore = null },
+            title = { Text("Restore backup?") },
+            text = { Text("Restore ${file.name}? Projects with matching IDs may be overwritten. This operation is applied as one database transaction.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    pendingRestore = null
+                    viewModel.restoreFrom(file)
+                }) { Text("Restore") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { pendingRestore = null }) { Text("Cancel") }
+            },
+        )
     }
 }
 

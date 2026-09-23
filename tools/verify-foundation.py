@@ -43,8 +43,8 @@ for token in ["validator.validate", "revision = before.metadata.revision + 1", "
 
 build = (ROOT / "app/build.gradle.kts").read_text()
 m = re.search(r"versionCode\s*=\s*(\d+).*?versionName\s*=\s*\"([^\"]+)\"", build, re.S)
-if not m or m.group(1) != "12" or m.group(2) != "1.0.0-alpha03":
-    failures.append("version was not advanced to 1.0.0-alpha03 / 12")
+if not m or m.group(1) != "15" or m.group(2) != "1.0.0-alpha06":
+    failures.append("version was not advanced to 1.0.0-alpha06 / 15")
 
 for p in ROOT.rglob("*.kt"):
     data = p.read_bytes()
@@ -60,7 +60,7 @@ if failures:
 
 print("FOUNDATION VERIFICATION PASSED")
 print("Stage: 0-6 / Architecture Foundation + Runtime Backbone")
-print("Version: 1.0.0-alpha03")
+print("Version: 1.0.0-alpha06")
 print("Canonical transaction engine: present")
 print("Operation lifecycle journal: present")
 print("Architecture boundary gate: present")

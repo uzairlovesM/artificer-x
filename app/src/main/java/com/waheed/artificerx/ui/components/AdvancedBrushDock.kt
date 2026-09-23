@@ -22,7 +22,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +36,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.waheed.artificerx.core.color.ColorPaletteEngine
 import com.waheed.artificerx.domain.model.BrushType
 import com.waheed.artificerx.domain.model.SymmetryMode
 import com.waheed.artificerx.ui.theme.GoldPrimary
@@ -47,6 +53,10 @@ fun AdvancedBrushDock(
     scatter: Float,
     sizePressure: Float,
     opacityPressure: Float,
+    taperStart: Float,
+    taperEnd: Float,
+    wetness: Float,
+    bleed: Float,
     pressureSimulation: Boolean,
     symmetry: SymmetryMode,
     colorHex: String,
@@ -59,6 +69,10 @@ fun AdvancedBrushDock(
     onSmoothingChanged: (Float) -> Unit,
     onScatterChanged: (Float) -> Unit,
     onPressureResponseChanged: (Float, Float) -> Unit,
+    onTaperStartChanged: (Float) -> Unit,
+    onTaperEndChanged: (Float) -> Unit,
+    onWetnessChanged: (Float) -> Unit,
+    onBleedChanged: (Float) -> Unit,
     onPressureSimulationChanged: (Boolean) -> Unit,
     onSymmetryChanged: (SymmetryMode) -> Unit,
     onColorChanged: (String) -> Unit,
@@ -85,8 +99,11 @@ fun AdvancedBrushDock(
         SymmetryMode.MANDALA_24 to "M24",
     )
     val parsedColor = runCatching { Color(android.graphics.Color.parseColor(colorHex)) }.getOrDefault(Color.White)
+    var selectedHarmony by remember { mutableStateOf("analogous") }
+    val harmonyOptions = listOf("analogous", "complementary", "triadic", "split_complementary", "monochrome")
+    val harmonyPalette = remember(colorHex, selectedHarmony) { ColorPaletteEngine.generate(colorHex, selectedHarmony, 6) }
     val outlineColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-    val colorPresets = listOf("#FFFFFFFF", "#FFD166", "#EF476F", "#06D6A0", "#118AB2", "#8338EC", "#FF9F1C", "#111111")
+    val colorPresets = listOf("#FFFFFFFF", "#111111", "#FFD166", "#FFB4A2", "#EF476F", "#06D6A0", "#118AB2", "#8338EC", "#FF9F1C", "#6A4C93", "#2A9D8F", "#E9C46A")
 
     Column(
         modifier = modifier
@@ -137,6 +154,42 @@ fun AdvancedBrushDock(
         AdvancedSlider("Scatter", scatter, 0f..1f, { onScatterChanged(it) }, "${(scatter * 100).toInt()}%")
         AdvancedSlider("Size pressure", sizePressure, 0f..1f, { value -> onPressureResponseChanged(value, opacityPressure) }, "${(sizePressure * 100).toInt()}%")
         AdvancedSlider("Opacity pressure", opacityPressure, 0f..1f, { value -> onPressureResponseChanged(sizePressure, value) }, "${(opacityPressure * 100).toInt()}%")
+        AdvancedSlider("Taper start", taperStart, 0f..1f, onTaperStartChanged, "${(taperStart * 100).toInt()}%")
+        AdvancedSlider("Taper end", taperEnd, 0f..1f, onTaperEndChanged, "${(taperEnd * 100).toInt()}%")
+        AdvancedSlider("Wetness", wetness, 0f..1f, onWetnessChanged, "${(wetness * 100).toInt()}%")
+        AdvancedSlider("Bleed", bleed, 0f..1f, onBleedChanged, "${(bleed * 100).toInt()}%")
+
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            harmonyOptions.forEach { harmony ->
+                FilterChip(
+                    selected = harmony == selectedHarmony,
+                    onClick = { selectedHarmony = harmony },
+                    label = { Text(harmony.replace('_', ' '), style = MaterialTheme.typography.labelSmall) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = GoldPrimary.copy(alpha = 0.22f),
+                        selectedLabelColor = GoldPrimary,
+                    ),
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            harmonyPalette.forEach { preset ->
+                val swatch = runCatching { Color(android.graphics.Color.parseColor(preset)) }.getOrDefault(Color.White)
+                Box(
+                    modifier = Modifier.size(30.dp).clip(CircleShape).background(swatch),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    IconButton(onClick = { onColorChanged(preset) }, modifier = Modifier.size(30.dp)) {}
+                }
+            }
+        }
 
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
@@ -151,6 +204,14 @@ fun AdvancedBrushDock(
                 )
             }
         }
+
+        OutlinedTextField(
+            value = colorHex,
+            onValueChange = { value -> if (value.length <= 9) onColorChanged(value) },
+            label = { Text("Brush color #RRGGBB or #AARRGGBB") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+        )
 
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 5.dp),

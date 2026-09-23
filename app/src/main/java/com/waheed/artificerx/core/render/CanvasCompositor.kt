@@ -29,6 +29,8 @@ class CanvasCompositor
     @Inject
     constructor(
         private val bitmapStore: LayerBitmapStore,
+        private val skiaRasterEngine: SkiaRasterEngine,
+        private val runtimeShaderEffects: RuntimeShaderEffects,
     ) {
         /** v0.4.30 real brush engine: [brushType] genuinely changes how the
          *  stroke renders (not just a label) — see the private per-type
@@ -53,6 +55,16 @@ class CanvasCompositor
             val color = safeParseColor(colorHex, default = Color.BLACK)
             val baseWidth = strokeWidthPx ?: 8f
             val baseAlpha = ((opacity ?: 1f).coerceIn(0f, 1f) * 255).toInt()
+
+            // Heavy AI-generated polylines are rendered through Skia offscreen
+            // when they are large enough to amortize the raster/transfer cost.
+            if (brushType == com.waheed.artificerx.domain.model.BrushType.INK_PEN &&
+                pointWeights == null &&
+                points.size >= 512 &&
+                skiaRasterEngine.tryDrawLargeStroke(canvas, points, color, baseWidth, opacity ?: 1f)
+            ) {
+                return true
+            }
 
             when (brushType) {
                 com.waheed.artificerx.domain.model.BrushType.INK_PEN ->
@@ -83,12 +95,13 @@ class CanvasCompositor
             strokeWidthPx: Float?,
             opacity: Float?,
             brushType: com.waheed.artificerx.domain.model.BrushType,
+            pointWeights: List<Float>? = null,
         ): Boolean {
             val bitmap = bitmapStore.getBitmap(layerId) ?: return false
             val canvas = bitmapStore.getCanvas(layerId) ?: return false
             if (points.size < 4) return false
             val alphaMask = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-            val drawn = drawPath(layerId, points, colorHex, strokeWidthPx, opacity, brushType)
+            val drawn = drawPath(layerId, points, colorHex, strokeWidthPx, opacity, brushType, pointWeights)
             if (!drawn) { alphaMask.recycle(); return false }
             val maskPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN) }
             canvas.drawBitmap(alphaMask, 0f, 0f, maskPaint)
@@ -717,8 +730,21 @@ class CanvasCompositor
             val canvas = bitmapStore.getCanvas(layerId) ?: return false
             val amount = intensity ?: 1f
 
+            val normalizedFilter = filterType.lowercase()
+            val shaderEffect = when (normalizedFilter) {
+                "threshold" -> RuntimeShaderEffects.ShaderEffect.THRESHOLD
+                "vignette" -> RuntimeShaderEffects.ShaderEffect.VIGNETTE
+                "chromatic_aberration", "chromatic-aberration" -> RuntimeShaderEffects.ShaderEffect.CHROMATIC_ABERRATION
+                "sharpen" -> RuntimeShaderEffects.ShaderEffect.SHARPEN
+                "posterize" -> RuntimeShaderEffects.ShaderEffect.POSTERIZE
+                else -> null
+            }
+            if (shaderEffect != null && runtimeShaderEffects.apply(bitmap, shaderEffect, amount)) {
+                return true
+            }
+
             val colorMatrix =
-                when (filterType.lowercase()) {
+                when (normalizedFilter) {
                     "grayscale" -> android.graphics.ColorMatrix().apply { setSaturation(0f) }
                     "invert" ->
                         android.graphics.ColorMatrix(
@@ -1118,7 +1144,8 @@ class CanvasCompositor
                 val rawBitmap = bitmapStore.getBitmap(layer.id) ?: return@forEachIndexed
                 val below = ordered.take(index).asReversed().firstOrNull { it.isVisible && bitmapStore.getBitmap(it.id) != null }
                 val layerBitmap = if (layer.clipToBelow && below != null) {
-                    createAlphaClippedBitmap(rawBitmap, bitmapStore.getBitmap(below.id)!!)
+                    val maskBitmap = bitmapStore.getBitmap(below.id)
+                    if (maskBitmap != null) createAlphaClippedBitmap(rawBitmap, maskBitmap) else rawBitmap
                 } else rawBitmap
 
                 if (requiresManualBlend(layer.blendMode)) {

@@ -64,6 +64,13 @@ object ToolCallParser {
                                 com.waheed.artificerx.domain.model.BrushType.valueOf(raw.uppercase())
                             }.getOrNull()
                         },
+                    smoothing = args["smoothing"]?.jsonPrimitive?.floatOrNull,
+                    spacing = args["spacing"]?.jsonPrimitive?.floatOrNull,
+                    scatter = args["scatter"]?.jsonPrimitive?.floatOrNull,
+                    pressureSize = args["pressure_size"]?.jsonPrimitive?.floatOrNull,
+                    pressureOpacity = args["pressure_opacity"]?.jsonPrimitive?.floatOrNull,
+                    taperStart = args["taper_start"]?.jsonPrimitive?.floatOrNull,
+                    taperEnd = args["taper_end"]?.jsonPrimitive?.floatOrNull,
                 )
             "draw_shape" ->
                 ParsedToolCall.DrawShape(
@@ -125,6 +132,12 @@ object ToolCallParser {
                     height = (args["height"]?.jsonPrimitive?.floatOrNull ?: 0f).toInt(),
                 )
             "inspect_canvas" -> ParsedToolCall.InspectCanvas
+            "analyze_canvas" -> ParsedToolCall.AnalyzeCanvas
+            "suggest_palette" -> ParsedToolCall.SuggestPalette(
+                baseColorHex = args["base_color_hex"]?.jsonPrimitive?.contentOrNull ?: "#FFD700",
+                harmony = args["harmony"]?.jsonPrimitive?.contentOrNull ?: "complementary",
+                count = (args["count"]?.jsonPrimitive?.intOrNull ?: 5).coerceIn(3, 8),
+            )
             "inspect_android_toolchain" -> ParsedToolCall.InspectAndroidToolchain
             "pick_color" ->
                 ParsedToolCall.PickColor(
@@ -219,6 +232,17 @@ object ToolCallParser {
                     colorHex = args["color_hex"]?.jsonPrimitive?.contentOrNull,
                     opacity = args["opacity"]?.jsonPrimitive?.floatOrNull,
                     hardness = args["hardness"]?.jsonPrimitive?.floatOrNull,
+                    flow = args["flow"]?.jsonPrimitive?.floatOrNull,
+                    spacing = args["spacing"]?.jsonPrimitive?.floatOrNull,
+                    smoothing = args["smoothing"]?.jsonPrimitive?.floatOrNull,
+                    scatter = args["scatter"]?.jsonPrimitive?.floatOrNull,
+                    pressureSize = args["pressure_size"]?.jsonPrimitive?.floatOrNull,
+                    pressureOpacity = args["pressure_opacity"]?.jsonPrimitive?.floatOrNull,
+                    taperStart = args["taper_start"]?.jsonPrimitive?.floatOrNull,
+                    taperEnd = args["taper_end"]?.jsonPrimitive?.floatOrNull,
+                    textureScale = args["texture_scale"]?.jsonPrimitive?.floatOrNull,
+                    wetness = args["wetness"]?.jsonPrimitive?.floatOrNull,
+                    bleed = args["bleed"]?.jsonPrimitive?.floatOrNull,
                 )
             "set_selection" ->
                 ParsedToolCall.SetSelection(

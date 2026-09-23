@@ -35,4 +35,7 @@ data class ChatMessage(
     // having to go find it in a gallery app on their own.
     val autoSavedFileName: String? = null,
     val autoSavedUri: android.net.Uri? = null,
+    val reasoningSummaries: List<String> = emptyList(),
+    val reasoningEffort: String? = null,
+    val reasoningDurationMs: Long? = null,
 )

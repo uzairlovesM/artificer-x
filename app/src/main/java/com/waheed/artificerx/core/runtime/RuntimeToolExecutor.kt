@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.net.URI
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -62,12 +63,14 @@ class RuntimeToolExecutor @Inject constructor(
         return when (operation) {
             "COPY_FILE" -> {
                 val dest = safe(cfg("destination_template")) ?: return ToolExecutionResult.Failure("Invalid destination path.")
+                if (dest.canonicalPath.startsWith(source.canonicalPath + File.separator)) return ToolExecutionResult.Failure("Destination may not be inside source.")
                 if (!source.isFile) return ToolExecutionResult.Failure("Source file not found: ${source.path}")
                 dest.parentFile?.mkdirs(); source.copyTo(dest, overwrite = cfg("overwrite").equals("true", true))
                 ToolExecutionResult.Success("Copied ${source.path} -> ${dest.path}")
             }
             "MOVE_FILE" -> {
                 val dest = safe(cfg("destination_template")) ?: return ToolExecutionResult.Failure("Invalid destination path.")
+                if (dest.canonicalPath.startsWith(source.canonicalPath + File.separator)) return ToolExecutionResult.Failure("Destination may not be inside source.")
                 if (!source.exists()) return ToolExecutionResult.Failure("Source path not found: ${source.path}")
                 dest.parentFile?.mkdirs(); if (source.isDirectory) source.copyRecursively(dest, overwrite = cfg("overwrite").equals("true", true)) else source.copyTo(dest, overwrite = cfg("overwrite").equals("true", true)); source.deleteRecursively()
                 ToolExecutionResult.Success("Moved ${source.path} -> ${dest.path}")
@@ -89,11 +92,30 @@ class RuntimeToolExecutor @Inject constructor(
     }
 
     private fun httpGet(url: String): ToolExecutionResult = runCatching {
-        val response = http.newCall(Request.Builder().url(url).get().build()).execute()
-        response.use { ToolExecutionResult.Success("HTTP ${it.code}\n${it.body?.string().orEmpty().take(100_000)}") }
+        val uri = URI(url.trim())
+        require(uri.scheme.equals("https", true)) { "Runtime HTTP_GET requires HTTPS." }
+        require(uri.userInfo.isNullOrBlank()) { "HTTP credentials in URL are not allowed." }
+        require(!uri.host.isNullOrBlank()) { "HTTP host is missing." }
+        val response = http.newCall(Request.Builder().url(uri.toString()).get().build()).execute()
+        response.use {
+            if (!it.isSuccessful) return@runCatching ToolExecutionResult.Failure("HTTP ${it.code}")
+            val body = it.body ?: return@runCatching ToolExecutionResult.Success("HTTP ${it.code}\n")
+            val reader = body.charStream().buffered()
+            val sb = StringBuilder()
+            val buffer = CharArray(8 * 1024)
+            while (sb.length < MAX_HTTP_CHARS) {
+                val n = reader.read(buffer, 0, minOf(buffer.size, MAX_HTTP_CHARS - sb.length))
+                if (n < 0) break
+                sb.append(buffer, 0, n)
+            }
+            val suffix = if (sb.length >= MAX_HTTP_CHARS) "\n[response truncated]" else ""
+            ToolExecutionResult.Success("HTTP ${it.code}\n$sb$suffix")
+        }
     }.getOrElse { ToolExecutionResult.Failure(it.message ?: "HTTP GET failed") }
 
     private fun safe(relative: String): File? = SecurityPolicy.constrainPath(workspaceFs.roots.works, relative)
+
+    companion object { private const val MAX_HTTP_CHARS = 100_000 }
 
     private fun render(template: String, args: Map<String, String>): String = Regex("\\$\\{([a-zA-Z0-9_]+)}").replace(template) { args[it.groupValues[1]].orEmpty() }
 }

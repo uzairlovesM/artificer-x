@@ -1,4 +1,5 @@
 package com.waheed.artificerx.ui.screens.export
+import androidx.compose.foundation.layout.width
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -95,14 +96,14 @@ fun ExportScreen(
                             .glassSurface(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (compositedBitmap != null) {
+                    compositedBitmap?.let { bitmap ->
                         Image(
-                            bitmap = compositedBitmap!!.asImageBitmap(),
+                            bitmap = bitmap.asImageBitmap(),
                             contentDescription = "Artwork preview",
                             modifier = Modifier.fillMaxSize().padding(8.dp),
                             contentScale = ContentScale.Fit,
                         )
-                    } else {
+                    } ?: run {
                         Text("No artwork to export yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -123,7 +124,7 @@ fun ExportScreen(
                                 ),
                         ) {
                             Icon(Icons.Filled.Download, contentDescription = null)
-                            Spacer(modifier = Modifier.padding(start = 8.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text("Save to Gallery (PNG)", fontWeight = FontWeight.SemiBold)
                         }
                     }

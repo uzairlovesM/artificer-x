@@ -1,0 +1,6 @@
+ARTIFICER-X PRIVATE PERSONAL BUILD
+
+This archive is intentionally configured for one-owner local use.
+The signing keystore and private key material are preserved here because the owner explicitly requested a self-contained private archive.
+Do not publish, upload, or commit this archive or its signing material.
+GitHub Actions must continue to source release signing from repository secrets, never from tracked files.

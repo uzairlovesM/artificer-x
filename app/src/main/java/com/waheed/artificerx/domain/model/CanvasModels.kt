@@ -97,6 +97,10 @@ data class DrawToolState(
     val brushRotation: Float = 0f,
     val brushRotationJitter: Float = 0f,
     val brushTextureScale: Float = 1f,
+    val brushTaperStart: Float = 0f,
+    val brushTaperEnd: Float = 0f,
+    val brushWetness: Float = 0f,
+    val brushBleed: Float = 0f,
     val brushType: BrushType = BrushType.INK_PEN,
     val symmetryMode: SymmetryMode = SymmetryMode.OFF,
     // v0.4.30: touch-based simulated pressure — no stylus required.

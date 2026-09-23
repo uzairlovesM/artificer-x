@@ -44,6 +44,8 @@ object ToolRegistry {
             flipLayerTool(),
             cropCanvasTool(),
             inspectCanvasTool(),
+            analyzeCanvasTool(),
+            suggestPaletteTool(),
             inspectAndroidToolchain(),
             pickColorTool(),
             applyFilterTool(),
@@ -187,6 +189,13 @@ object ToolRegistry {
                                 putJsonObject("color_hex") { put("type", "string") }
                                 putJsonObject("stroke_width_px") { put("type", "number") }
                                 putJsonObject("opacity") { put("type", "number") }
+                                putJsonObject("smoothing") { put("type", "number") }
+                                putJsonObject("spacing") { put("type", "number") }
+                                putJsonObject("scatter") { put("type", "number") }
+                                putJsonObject("pressure_size") { put("type", "number") }
+                                putJsonObject("pressure_opacity") { put("type", "number") }
+                                putJsonObject("taper_start") { put("type", "number") }
+                                putJsonObject("taper_end") { put("type", "number") }
                                 putJsonObject("brush_type") {
                                     put("type", "string")
                                     put("description", "Which real brush engine to render with — each renders genuinely differently.")
@@ -212,10 +221,7 @@ object ToolRegistry {
                 FunctionDefinitionDto(
                     name = "resize_canvas",
                     description =
-                        "Resizes the active project's canvas to an exact pixel width/height — call this FIRST " +
-                            "when a request implies a specific format (e.g. '2000x3000 poster', 'square Instagram " +
-                            "post', '16:9 wallpaper') before creating any layers, since existing layer content is " +
-                            "cropped/padded to the new bounds, not rescaled.",
+                        "Resizes the active project's canvas to an exact pixel width/height. Existing layer content is cropped/padded to the new bounds, not automatically rescaled.",
                     parameters =
                         buildJsonObject {
                             put("type", "object")
@@ -275,6 +281,17 @@ object ToolRegistry {
                                 putJsonObject("color_hex") { put("type", "string") }
                                 putJsonObject("opacity") { put("type", "number") }
                                 putJsonObject("hardness") { put("type", "number") }
+                                putJsonObject("flow") { put("type", "number") }
+                                putJsonObject("spacing") { put("type", "number") }
+                                putJsonObject("smoothing") { put("type", "number") }
+                                putJsonObject("scatter") { put("type", "number") }
+                                putJsonObject("pressure_size") { put("type", "number") }
+                                putJsonObject("pressure_opacity") { put("type", "number") }
+                                putJsonObject("taper_start") { put("type", "number") }
+                                putJsonObject("taper_end") { put("type", "number") }
+                                putJsonObject("texture_scale") { put("type", "number") }
+                                putJsonObject("wetness") { put("type", "number") }
+                                putJsonObject("bleed") { put("type", "number") }
                             }
                         },
                 ),
@@ -586,6 +603,45 @@ object ToolRegistry {
                             }
                         },
                 ),
+        )
+
+    private fun analyzeCanvasTool() =
+        ToolDefinitionDto(
+            function = FunctionDefinitionDto(
+                name = "analyze_canvas",
+                description =
+                    "Runs a local compositional inspection over the current rendered canvas and returns scene type, " +
+                        "brightness, palette, structure/composition scores and actionable warnings. This does not expose " +
+                        "private chain-of-thought; it is deterministic visual analysis for tool planning.",
+                parameters =
+                    buildJsonObject {
+                        put("type", "object")
+                        putJsonObject("properties") {}
+                    },
+            ),
+        )
+
+    private fun suggestPaletteTool() =
+        ToolDefinitionDto(
+            function = FunctionDefinitionDto(
+                name = "suggest_palette",
+                description = "Generates a color-science-based palette from a base color for accents, shadows, highlights and backgrounds.",
+                parameters = buildJsonObject {
+                    put("type", "object")
+                    putJsonObject("properties") {
+                        putJsonObject("base_color_hex") { put("type", "string") }
+                        putJsonObject("harmony") {
+                            put("type", "string")
+                            putJsonArray("enum") {
+                                add(JsonPrimitive("complementary")); add(JsonPrimitive("analogous")); add(JsonPrimitive("triadic"));
+                                add(JsonPrimitive("split_complementary")); add(JsonPrimitive("tetradic")); add(JsonPrimitive("monochrome"))
+                            }
+                        }
+                        putJsonObject("count") { put("type", "integer") }
+                    }
+                    putJsonArray("required") { add(JsonPrimitive("base_color_hex")); add(JsonPrimitive("harmony")) }
+                },
+            ),
         )
 
     private fun inspectCanvasTool() =

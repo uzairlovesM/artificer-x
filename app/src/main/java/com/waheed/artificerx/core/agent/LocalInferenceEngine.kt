@@ -168,11 +168,22 @@ class LocalInferenceEngine
 
             val builder = StringBuilder()
             return suspendCancellableCoroutine { continuation ->
-                val collectorJob =
+                lateinit var collectorJob: kotlinx.coroutines.Job
+                collectorJob =
                     engineScope.launch {
                         llmEventFlow.collect { event ->
                             when (event) {
-                                is LlamaHelper.LLMEvent.Ongoing -> builder.append(event.word)
+                                is LlamaHelper.LLMEvent.Ongoing -> {
+                                    if (builder.length + event.word.length > MAX_GENERATION_CHARS) {
+                                        if (continuation.isActive) {
+                                            continuation.resume(LocalGenerationResult.Failure("Local model output exceeded the safe generation limit."))
+                                        }
+                                        collectorJob.cancel()
+                                        runCatching { llamaHelper.abort() }
+                                    } else {
+                                        builder.append(event.word)
+                                    }
+                                }
                                 is LlamaHelper.LLMEvent.Done -> {
                                     if (continuation.isActive) {
                                         continuation.resume(
@@ -183,11 +194,13 @@ class LocalInferenceEngine
                                             ),
                                         )
                                     }
+                                    collectorJob.cancel()
                                 }
                                 is LlamaHelper.LLMEvent.Error -> {
                                     if (continuation.isActive) {
                                         continuation.resume(LocalGenerationResult.Failure(event.message))
                                     }
+                                    collectorJob.cancel()
                                 }
                                 else -> Unit
                             }
@@ -271,9 +284,8 @@ class LocalInferenceEngine
         private companion object {
             const val TAG = "LocalInferenceEngine"
             const val LLM_EVENT_BUFFER_CAPACITY = 64
-            /** No wall-clock generation ceiling; cancellation/user stop is the boundary. */
-            const val MODEL_LOAD_TIMEOUT_SECONDS = Long.MAX_VALUE
-            const val GENERATION_TIMEOUT_SECONDS = Long.MAX_VALUE
+            const val MAX_GENERATION_CHARS = 4_000_000
+            const val MODEL_LOAD_TIMEOUT_SECONDS = 600L
             const val OOM_FREE_HEAP_RATIO_THRESHOLD = 0.08
         }
     }
@@ -300,6 +312,6 @@ fun LocalInferenceEngine.diagnosticSnapshot(): LocalEngineDiagnosticSnapshot =
         state = loadState.value,
         modelId = loadedModelId.value,
         initialized = loadState.value != LocalModelLoadState.NOT_LOADED,
-        eventBufferCapacity = 256,
+        eventBufferCapacity = 64,
         likelyOom = loadState.value == LocalModelLoadState.OUT_OF_MEMORY,
     )

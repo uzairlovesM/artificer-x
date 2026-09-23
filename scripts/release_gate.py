@@ -36,13 +36,20 @@ if "PlaceholderScreen" in text:
 for marker in ("TODO", "FIXME", "<<<<<<<", ">>>>>>>"):
     if marker in text:
         errors.append(f"Forbidden source marker remains: {marker}")
+private_mode = (ROOT / "PRIVATE_PERSONAL_BUILD").exists()
 secret_names = ("keystore_base64.txt", "local.properties")
 for name in secret_names:
-    if (ROOT / name).exists():
+    if (ROOT / name).exists() and not (private_mode and name == "keystore_base64.txt"):
         errors.append(f"Secret/local file exists in source root: {name}")
+
+for pattern in ("*.p12", "*.jks", "*.keystore"):
+    for item in ROOT.rglob(pattern):
+        if ".git" not in item.parts and "build" not in item.parts and not private_mode:
+            errors.append(f"Signing material must never ship in source bundle: {item.relative_to(ROOT)}")
 report = {
     "status": "PASS" if not errors else "FAIL",
     "kotlinSources": len(kt),
+    "privatePersonalBuild": private_mode,
     "errors": errors,
 }
 print(report)

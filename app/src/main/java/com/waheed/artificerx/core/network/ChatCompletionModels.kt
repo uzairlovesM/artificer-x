@@ -22,6 +22,23 @@ data class ChatCompletionRequest(
     // Left null for every other preset/provider combination so models
     // that don't recognize the field never receive it.
     @SerialName("reasoning_effort") val reasoningEffort: String? = null,
+    val reasoning: ReasoningRequestDto? = null,
+)
+
+@Serializable
+data class ReasoningRequestDto(
+    val effort: String? = null,
+)
+
+@Serializable
+data class ReasoningDetailDto(
+    val type: String = "reasoning.summary",
+    val summary: String? = null,
+    val text: String? = null,
+    val data: String? = null,
+    val signature: String? = null,
+    val id: String? = null,
+    val format: String? = null,
 )
 
 /**
@@ -46,6 +63,7 @@ data class ChatMessageDto(
     val toolCalls: List<ToolCallDto>? = null,
     val toolCallId: String? = null,
     val name: String? = null,
+    val reasoningDetails: List<ReasoningDetailDto>? = null,
 )
 
 object ChatMessageDtoSerializer : kotlinx.serialization.KSerializer<ChatMessageDto> {
@@ -88,6 +106,9 @@ object ChatMessageDtoSerializer : kotlinx.serialization.KSerializer<ChatMessageD
         }
         value.toolCallId?.let { map["tool_call_id"] = kotlinx.serialization.json.JsonPrimitive(it) }
         value.name?.let { map["name"] = kotlinx.serialization.json.JsonPrimitive(it) }
+        value.reasoningDetails?.let {
+            map["reasoning_details"] = jsonEncoder.json.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(ReasoningDetailDto.serializer()), it)
+        }
 
         jsonEncoder.encodeJsonElement(kotlinx.serialization.json.JsonObject(map))
     }
@@ -121,6 +142,9 @@ object ChatMessageDtoSerializer : kotlinx.serialization.KSerializer<ChatMessageD
             }
         val toolCallId = (obj["tool_call_id"] as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
         val name = (obj["name"] as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
+        val reasoningDetails = (obj["reasoning_details"] as? kotlinx.serialization.json.JsonArray)?.let {
+            runCatching { jsonDecoder.json.decodeFromJsonElement(kotlinx.serialization.builtins.ListSerializer(ReasoningDetailDto.serializer()), it) }.getOrNull()
+        }
 
         return ChatMessageDto(
             role = role,
@@ -129,6 +153,7 @@ object ChatMessageDtoSerializer : kotlinx.serialization.KSerializer<ChatMessageD
             toolCalls = toolCalls,
             toolCallId = toolCallId,
             name = name,
+            reasoningDetails = reasoningDetails,
         )
     }
 }
@@ -230,6 +255,7 @@ data class StreamDeltaDto(
     val role: String? = null,
     val content: String? = null,
     @SerialName("tool_calls") val toolCalls: List<StreamToolCallDeltaDto>? = null,
+    @SerialName("reasoning_details") val reasoningDetails: List<ReasoningDetailDto>? = null,
 )
 
 @Serializable

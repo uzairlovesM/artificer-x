@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.AssistChip
@@ -137,20 +138,29 @@ fun AgentChatScreen(
                     val base64 =
                         withContext(kotlinx.coroutines.Dispatchers.IO) {
                             runCatching {
-                                val inputStream = context.contentResolver.openInputStream(uri)
-                                val bytes = inputStream?.use { it.readBytes() } ?: return@runCatching null
-                                val source = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                                    ?: return@runCatching null
+                                val resolver = context.contentResolver
+                                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                                resolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
+                                require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Selected file is not a readable image" }
+                                require(bounds.outWidth.toLong() * bounds.outHeight <= 40_000_000L) { "Selected image is too large" }
                                 val maxSide = 1536
+                                val largest = maxOf(bounds.outWidth, bounds.outHeight)
+                                var sample = 1
+                                while (largest / sample > maxSide * 2) sample *= 2
+                                val options = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+                                val source = resolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, options) }
+                                    ?: return@runCatching null
                                 val scale = (maxSide.toFloat() / maxOf(source.width, source.height)).coerceAtMost(1f)
                                 val resized = if (scale < 1f) {
                                     android.graphics.Bitmap.createScaledBitmap(source, (source.width * scale).toInt().coerceAtLeast(1), (source.height * scale).toInt().coerceAtLeast(1), true)
                                 } else source
                                 val output = java.io.ByteArrayOutputStream()
-                                resized.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, output)
+                                require(resized.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, output)) { "Could not encode reference image" }
                                 if (resized !== source) resized.recycle()
                                 source.recycle()
-                                android.util.Base64.encodeToString(output.toByteArray(), android.util.Base64.NO_WRAP)
+                                val encoded = output.toByteArray()
+                                require(encoded.size <= 8 * 1024 * 1024) { "Reference image is too large after compression" }
+                                android.util.Base64.encodeToString(encoded, android.util.Base64.NO_WRAP)
                             }.getOrNull()
                         }
                     if (base64 != null) {
@@ -160,12 +170,9 @@ fun AgentChatScreen(
             }
         }
 
-    // Voice input via Android's built-in on-device/cloud SpeechRecognizer
-    // dialog (RECORD_AUDIO is already requested lazily by ArtificerXRoot on
-    // first use — Section 116). No extra dependency needed: RecognizerIntent
-    // launches the system speech UI and returns the best transcription
-    // result, which is appended into the existing text field exactly like
-    // typed input so the agent pipeline downstream is unaffected.
+    // Voice input uses Android's system speech UI. The microphone permission
+    // is requested at the moment the user taps the voice action rather than
+    // at app startup, and denial is surfaced in the existing inline error state.
     var voiceInputError by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
     val speechRecognizerLauncher =
         androidx.activity.compose.rememberLauncherForActivityResult(
@@ -185,20 +192,39 @@ fun AgentChatScreen(
             }
         }
 
+    fun launchSpeechRecognizer() {
+        val intent =
+            android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(
+                    android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                    android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                )
+                putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Describe what to create or change…")
+            }
+        runCatching { speechRecognizerLauncher.launch(intent) }
+            .onFailure { voiceInputError = "Couldn't open voice input" }
+    }
+
+    val speechPermissionLauncher =
+        androidx.activity.compose.rememberLauncherForActivityResult(
+            contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+        ) { granted ->
+            if (granted) launchSpeechRecognizer() else voiceInputError = "Microphone permission is required for voice input"
+        }
+
     fun launchVoiceInput() {
-        if (android.speech.SpeechRecognizer.isRecognitionAvailable(context)) {
-            val intent =
-                android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(
-                        android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                        android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
-                    )
-                    putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Describe what to create or change…")
-                }
-            runCatching { speechRecognizerLauncher.launch(intent) }
-                .onFailure { voiceInputError = "Couldn't open voice input" }
-        } else {
+        if (!android.speech.SpeechRecognizer.isRecognitionAvailable(context)) {
             voiceInputError = "No speech recognition service available on this device"
+            return
+        }
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.RECORD_AUDIO,
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            launchSpeechRecognizer()
+        } else {
+            speechPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
         }
     }
 
@@ -265,6 +291,36 @@ fun AgentChatScreen(
 
         if (!state.hasConfiguredProvider) {
             NoProviderBanner()
+        }
+
+        state.localModelLoadingPhase?.let { phase ->
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = GoldPrimary)
+                    Spacer(Modifier.width(8.dp))
+                    Text(phase, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    state.localModelLoadingProgress?.let { Text("${(it * 100f).toInt().coerceIn(0, 100)}%", style = MaterialTheme.typography.labelSmall) }
+                }
+                state.localModelLoadingProgress?.let { LinearProgressIndicator(progress = { it.coerceIn(0f, 1f) }, Modifier.fillMaxWidth().padding(top = 4.dp)) }
+            }
+        }
+        state.localModelTokensPerSecond?.let { speed ->
+            Text("Local model • ${"%.1f".format(java.util.Locale.US, speed)} tok/s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp))
+        }
+        state.lastErrorMessage?.let { message ->
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+            ) {
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Error, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(message, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    TextButton(onClick = viewModel::dismissError) { Text("Dismiss") }
+                }
+            }
         }
 
         LazyColumn(
@@ -382,7 +438,7 @@ private fun NoProviderBanner() {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Icons.Filled.Error, contentDescription = null, tint = QualityWarn, modifier = Modifier.size(18.dp))
-        Spacer(modifier = Modifier.padding(start = 8.dp))
+        Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = "No AI provider configured — connect one in Settings to use the agent.",
             style = MaterialTheme.typography.bodySmall,
@@ -418,6 +474,7 @@ private fun ChatBubble(message: ChatMessage, onSave: () -> Unit) {
     val isUser = message.role == ChatMessageRole.USER
     val context = LocalContext.current
     var showPreview by androidx.compose.runtime.remember(message.id) { androidx.compose.runtime.mutableStateOf(false) }
+    var showReasoning by androidx.compose.runtime.remember(message.id) { androidx.compose.runtime.mutableStateOf(false) }
     var showSummary by androidx.compose.runtime.remember(message.id) { androidx.compose.runtime.mutableStateOf(false) }
 
     if (showPreview) {
@@ -444,6 +501,21 @@ private fun ChatBubble(message: ChatMessage, onSave: () -> Unit) {
             confirmButton = { TextButton(onClick = { showPreview = false }) { Text("Close") } },
         )
     }
+    if (showReasoning) {
+        AlertDialog(
+            onDismissRequest = { showReasoning = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Psychology, contentDescription = null, tint = GoldPrimary, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text("Thinking process")
+                }
+            },
+            text = { ThinkingProcessPanel(message) },
+            confirmButton = { TextButton(onClick = { showReasoning = false }) { Text("Done") } },
+        )
+    }
+
     if (showSummary) {
         AlertDialog(
             onDismissRequest = { showSummary = false },
@@ -470,6 +542,9 @@ private fun ChatBubble(message: ChatMessage, onSave: () -> Unit) {
                         cm?.setPrimaryClip(android.content.ClipData.newPlainText("ArtificerX AI response", message.text))
                     }) { Icon(Icons.Filled.ContentCopy, null, Modifier.size(16.dp)); Spacer(Modifier.size(4.dp)); Text("Copy") }
                     TextButton(onClick = { showPreview = true }) { Icon(Icons.Filled.Visibility, null, Modifier.size(16.dp)); Spacer(Modifier.size(4.dp)); Text("Preview") }
+                    if (message.reasoningSummaries.isNotEmpty()) {
+                        TextButton(onClick = { showReasoning = true }) { Icon(Icons.Filled.Psychology, null, Modifier.size(16.dp)); Spacer(Modifier.size(4.dp)); Text("Thinking") }
+                    }
                     TextButton(onClick = { showSummary = true }) { Text("Summary") }
                 }
             }
@@ -479,12 +554,12 @@ private fun ChatBubble(message: ChatMessage, onSave: () -> Unit) {
             }
 
             if (message.toolCalls.isNotEmpty()) {
-                Spacer(modifier = Modifier.padding(top = 8.dp))
-                message.toolCalls.forEach { toolCall -> ToolCallChip(toolCall); Spacer(modifier = Modifier.padding(top = 4.dp)) }
+                Spacer(modifier = Modifier.height(8.dp))
+                message.toolCalls.forEach { toolCall -> ToolCallChip(toolCall); Spacer(modifier = Modifier.height(4.dp)) }
             }
 
             if (message.autoSavedUri != null) {
-                Spacer(modifier = Modifier.padding(top = 8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
                 if (isVisualArtifact(message.autoSavedFileName)) {
                     AsyncImage(
                         model = message.autoSavedUri,
@@ -512,6 +587,25 @@ private fun ChatBubble(message: ChatMessage, onSave: () -> Unit) {
                 if (!path.isNullOrBlank()) ArtifactActionRow(fileName = tool.argsPreview.ifBlank { tool.toolName }, path = path)
             }
         }
+    }
+}
+
+@Composable
+private fun ThinkingProcessPanel(message: ChatMessage) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.heightIn(max = 360.dp)) {
+        Text("Provider summaries + executed actions", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        message.reasoningEffort?.let { Text("Reasoning effort: ${it.uppercase()}", style = MaterialTheme.typography.labelSmall, color = GoldPrimary) }
+        message.reasoningDurationMs?.let { Text("Thinking time: ${it / 1000.0}s", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        message.reasoningSummaries.forEachIndexed { index, summary ->
+            Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f), shape = ToolCallChipShape) {
+                Row(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Top) {
+                    Text("${index + 1}", color = GoldPrimary, style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.size(8.dp))
+                    Text(summary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+        Text("Private hidden chain-of-thought is never exposed. These are provider-supplied summaries and verifiable execution steps.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -587,14 +681,14 @@ private fun AutoSavedRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Icons.Filled.Download, contentDescription = null, tint = QualityPass, modifier = Modifier.size(14.dp))
-        Spacer(modifier = Modifier.padding(start = 6.dp))
+        Spacer(modifier = Modifier.width(6.dp))
         Text(
             text = "Saved: $fileName",
             style = AgentLogTextStyle.copy(fontSize = 10.sp()),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.widthIn(max = 140.dp),
         )
-        Spacer(modifier = Modifier.padding(start = 8.dp))
+        Spacer(modifier = Modifier.width(8.dp))
         IconButton(
             modifier = Modifier.size(28.dp),
             onClick = {
@@ -648,7 +742,7 @@ private fun ToolCallChip(toolCall: ToolCallEntry) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(14.dp))
-        Spacer(modifier = Modifier.padding(start = 6.dp))
+        Spacer(modifier = Modifier.width(6.dp))
         Column {
             Text(text = toolCall.toolName, style = AgentLogTextStyle, color = MaterialTheme.colorScheme.onBackground)
             Text(

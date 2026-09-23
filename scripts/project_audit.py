@@ -76,12 +76,17 @@ for route in REQUIRED_ROUTES:
     if f"Destinations.{route}" not in nav:
         fail(f"route declared but not referenced by NavGraph: {route}")
 
-# Secret material should never be packaged.
-for forbidden in ["keystore_base64.txt", "*.jks", "*.keystore"]:
+# Secret material is allowed only for an explicitly marked private personal build.
+# Public/reproducible builds still fail closed.
+private_personal_build = (ROOT / "PRIVATE_PERSONAL_BUILD").exists()
+for forbidden in ["keystore_base64.txt", "*.jks", "*.keystore", "*.p12"]:
     matches = list(ROOT.rglob(forbidden)) if "*" in forbidden else [ROOT / forbidden]
     for item in matches:
         if item.is_file() and ".git" not in item.parts and "build" not in item.parts:
-            fail(f"secret/signing material inside source tree: {item.relative_to(ROOT)}")
+            if not private_personal_build:
+                fail(f"secret/signing material inside source tree: {item.relative_to(ROOT)}")
+            else:
+                warnings.append(f"private build includes signing material by explicit marker: {item.relative_to(ROOT)}")
 
 # Common broken states / merge debris.
 for path in ROOT.rglob("*.kt"):

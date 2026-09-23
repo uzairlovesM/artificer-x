@@ -3,9 +3,9 @@ package com.waheed.artificerx.ui.navigation
 /**
  * Central route registry for the single-Activity nav graph (Section 72:
  * Android Architecture). Every screen ARTIFICER-X ships across every
- * build phase gets a route here up front, even ones not wired with real
- * content yet, so the graph shape never needs churn later — only the
- * screen composable behind a route changes as phases land.
+ * build phase gets a stable route here up front. Every route in the current
+ * graph resolves to an explicit screen target; shared capability surfaces are
+ * intentionally reused where the feature contract is the same.
  *
  * Routes that take arguments use a base path constant plus a
  * `createRoute(...)` builder so call sites never hand-format route

@@ -104,6 +104,9 @@ class ChatWorkspaceRepository @Inject constructor(
                 autoSavedFileName = message.autoSavedFileName,
                 autoSavedUri = message.autoSavedUri?.toString(),
                 toolCallsJson = json.encodeToString<List<StoredToolCall>>(storedCalls),
+                reasoningSummariesJson = json.encodeToString(message.reasoningSummaries),
+                reasoningEffort = message.reasoningEffort,
+                reasoningDurationMs = message.reasoningDurationMs,
             ),
         )
         threadDao.touch(threadId, System.currentTimeMillis())
@@ -118,6 +121,7 @@ class ChatWorkspaceRepository @Inject constructor(
 
     private fun ChatMessageEntity.toDomain(json: Json): ChatMessage {
         val calls = runCatching { json.decodeFromString<List<StoredToolCall>>(toolCallsJson) }.getOrDefault(emptyList())
+        val reasoning = runCatching { json.decodeFromString<List<String>>(reasoningSummariesJson) }.getOrDefault(emptyList())
         return ChatMessage(
             id = id,
             role = runCatching { ChatMessageRole.valueOf(role) }.getOrDefault(ChatMessageRole.AGENT),
@@ -136,6 +140,9 @@ class ChatWorkspaceRepository @Inject constructor(
             attachedImageUri = attachedImageUri,
             autoSavedFileName = autoSavedFileName,
             autoSavedUri = autoSavedUri?.let(Uri::parse),
+            reasoningSummaries = reasoning,
+            reasoningEffort = reasoningEffort,
+            reasoningDurationMs = reasoningDurationMs,
         )
     }
 }

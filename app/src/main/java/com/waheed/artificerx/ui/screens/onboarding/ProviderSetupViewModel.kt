@@ -268,13 +268,17 @@ class ProviderSetupViewModel
 
                 when (result) {
                     is ConnectionTestResult.Success -> {
+                        val selectedModel = state.fetchedModels.firstOrNull { it.id == state.effectiveModelId }
                         repository.addProvider(
                             type = type,
                             displayName = displayName,
                             baseUrl = effectiveBaseUrl,
                             rawApiKey = rawKey,
-                            supportsVision = state.selectedPreset?.supportsVision ?: true,
-                            supportsToolCalling = state.selectedPreset?.supportsToolCalling ?: true,
+                            supportsVision = selectedModel?.supportsVision ?: (state.selectedPreset?.supportsVision ?: true),
+                            supportsToolCalling = selectedModel?.supportsToolCalling ?: (state.selectedPreset?.supportsToolCalling ?: true),
+                            visionModelIds = state.fetchedModels.filter { it.supportsVision }.map { it.id }.toSet(),
+                            reasoningModelIds = state.fetchedModels.filter { it.supportsReasoning }.map { it.id }.toSet(),
+                            toolCallingModelIds = state.fetchedModels.filter { it.supportsToolCalling }.map { it.id }.toSet(),
                             knownDailyQuota = state.selectedPreset?.knownDailyQuota,
                             makePrimary = state.configuredProviderCount == 0,
                             defaultModelId = state.effectiveModelId,

@@ -71,12 +71,118 @@ policy = text.get(JAVA / 'com' / 'waheed' / 'artificerx' / 'core' / 'agent' / 'T
 if 'MAX_TOOLS = Int.MAX_VALUE' in policy:
     errors.append('tool catalog is unbounded per request')
 
-# Simple lexical sanity checks: report impossible top-level patterns early.
+# Lexical sanity checks. Ignore normal Kotlin strings, raw strings and comments
+# so ordinary map/template braces do not create dozens of false-positive warnings.
+def strip_non_code(source: str) -> str:
+    out = []
+    i = 0
+    state = "code"
+    interpolation_depth = 0
+
+    while i < len(source):
+        if state == "code":
+            if source.startswith("//", i):
+                state = "line_comment"; out.append("  "); i += 2; continue
+            if source.startswith("/*", i):
+                state = "block_comment"; out.append("  "); i += 2; continue
+            if source.startswith('\"\"\"', i):
+                state = "raw_string"; out.append("   "); i += 3; continue
+            if source[i] == '"':
+                state = "string"; out.append(" "); i += 1; continue
+            if source[i] == "'":
+                state = "char"; out.append(" "); i += 1; continue
+            out.append(source[i]); i += 1
+        elif state == "line_comment":
+            if source[i] == "\n": state = "code"; out.append("\n")
+            else: out.append(" ")
+            i += 1
+        elif state == "block_comment":
+            if source.startswith("*/", i): state = "code"; out.append("  "); i += 2
+            else:
+                out.append("\n" if source[i] == "\n" else " "); i += 1
+        elif state == "raw_string":
+            if source.startswith('\"\"\"', i): state = "code"; out.append("   "); i += 3
+            else:
+                out.append("\n" if source[i] == "\n" else " "); i += 1
+        elif state == "string":
+            if source[i] == "\\":
+                out.extend([" ", " "]); i += 2
+            elif source.startswith("${", i):
+                out.extend([" ", " "]); i += 2; state = "interpolation"; interpolation_depth = 1
+            elif source[i] == '"':
+                state = "code"; out.append(" "); i += 1
+            else:
+                out.append("\n" if source[i] == "\n" else " "); i += 1
+        elif state == "char":
+            if source[i] == "\\":
+                out.extend([" ", " "]); i += 2
+            elif source[i] == "'":
+                state = "code"; out.append(" "); i += 1
+            else:
+                out.append(" "); i += 1
+        elif state == "interpolation":
+            if source.startswith("//", i):
+                state = "interpolation_line_comment"; out.append("  "); i += 2; continue
+            if source.startswith("/*", i):
+                state = "interpolation_block_comment"; out.append("  "); i += 2; continue
+            if source.startswith('\"\"\"', i):
+                state = "interpolation_raw_string"; out.append("   "); i += 3; continue
+            if source[i] == '"':
+                state = "interpolation_string"; out.append(" "); i += 1; continue
+            if source[i] == "'":
+                state = "interpolation_char"; out.append(" "); i += 1; continue
+            if source[i] == "{":
+                interpolation_depth += 1; out.append(" "); i += 1; continue
+            if source[i] == "}":
+                interpolation_depth -= 1; out.append(" "); i += 1
+                if interpolation_depth == 0:
+                    state = "string"
+                continue
+            out.append("\n" if source[i] == "\n" else " "); i += 1
+        elif state == "interpolation_line_comment":
+            if source[i] == "\n": state = "interpolation"; out.append("\n")
+            else: out.append(" ")
+            i += 1
+        elif state == "interpolation_block_comment":
+            if source.startswith("*/", i): state = "interpolation"; out.append("  "); i += 2
+            else:
+                out.append("\n" if source[i] == "\n" else " "); i += 1
+        elif state == "interpolation_raw_string":
+            if source.startswith('\"\"\"', i): state = "interpolation"; out.append("   "); i += 3
+            else:
+                out.append("\n" if source[i] == "\n" else " "); i += 1
+        elif state == "interpolation_string":
+            if source[i] == "\\":
+                out.extend([" ", " "]); i += 2
+            elif source[i] == '"':
+                state = "interpolation"; out.append(" "); i += 1
+            else:
+                out.append(" "); i += 1
+        elif state == "interpolation_char":
+            if source[i] == "\\":
+                out.extend([" ", " "]); i += 2
+            elif source[i] == "'":
+                state = "interpolation"; out.append(" "); i += 1
+            else:
+                out.append(" "); i += 1
+    return ''.join(out)
+
+pairs = {"}": "{", "]": "[", ")": "("}
 for p, s in text.items():
-    if '{{' in s or '}}' in s:
-        # Allow ordinary strings/maps only when braces are balanced globally. Flag repeated template artefacts.
-        if '{{' in s or '}}' in s:
-            warnings.append(f'check nested braces manually: {p}')
+    code_only = strip_non_code(s)
+    stack = []
+    mismatch = None
+    for idx, ch in enumerate(code_only):
+        if ch in "{[(":
+            stack.append((ch, idx))
+        elif ch in pairs:
+            if not stack or stack[-1][0] != pairs[ch]:
+                mismatch = (ch, idx)
+                break
+            stack.pop()
+    if mismatch or stack:
+        line = (code_only[:mismatch[1]].count("\n") + 1) if mismatch else code_only.count("\n") + 1
+        warnings.append(f"unbalanced delimiter near line {line}: {p}")
 
 print(f'SOURCE CONTRACT SCAN: {len(files)} Kotlin files')
 for w in warnings[:40]:

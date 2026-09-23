@@ -12,3 +12,8 @@
 # optional binding class is truly unreachable at runtime.
 -dontwarn org.slf4j.**
 -dontwarn org.slf4j.impl.StaticLoggerBinder
+
+# Skiko/Skia native bridge: keep JNI-visible types and native entrypoints.
+-keep class org.jetbrains.skia.** { *; }
+-keep class org.jetbrains.skiko.** { *; }
+-keepclasseswithmembernames,includedescriptorclasses class * { native <methods>; }

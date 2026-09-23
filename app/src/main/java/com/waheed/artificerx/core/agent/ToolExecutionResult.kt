@@ -40,6 +40,13 @@ sealed class ParsedToolCall {
         val strokeWidthPx: Float?,
         val opacity: Float?,
         val brushType: com.waheed.artificerx.domain.model.BrushType?,
+        val smoothing: Float? = null,
+        val spacing: Float? = null,
+        val scatter: Float? = null,
+        val pressureSize: Float? = null,
+        val pressureOpacity: Float? = null,
+        val taperStart: Float? = null,
+        val taperEnd: Float? = null,
     ) : ParsedToolCall()
 
     data class DrawShape(
@@ -100,6 +107,11 @@ sealed class ParsedToolCall {
     ) : ParsedToolCall()
 
     object InspectCanvas : ParsedToolCall()
+
+    object AnalyzeCanvas : ParsedToolCall()
+
+    data class SuggestPalette(val baseColorHex: String, val harmony: String, val count: Int) : ParsedToolCall()
+
     object InspectAndroidToolchain : ParsedToolCall()
 
     data class PickColor(
@@ -207,6 +219,15 @@ sealed class ParsedToolCall {
         val colorHex: String?,
         val opacity: Float?,
         val hardness: Float?,
+        val flow: Float? = null,
+        val spacing: Float? = null,
+        val smoothing: Float? = null,
+        val scatter: Float? = null,
+        val pressureSize: Float? = null,
+        val pressureOpacity: Float? = null,
+        val taperStart: Float? = null,
+        val taperEnd: Float? = null,
+        val textureScale: Float? = null,
     ) : ParsedToolCall()
 
     // v0.4.30: AI-callable selection & transform — previously these

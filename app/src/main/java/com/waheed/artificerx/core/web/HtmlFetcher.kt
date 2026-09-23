@@ -68,41 +68,58 @@ class HtmlFetcher
                 .Builder()
                 .connectTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .readTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                .followRedirects(true)
-                .followSslRedirects(true)
+                .followRedirects(false)
+                .followSslRedirects(false)
                 .build()
 
         suspend fun fetch(url: String): WebFetchResult {
-            val blockedReason = blockedUrlReason(url)
-            if (blockedReason != null) {
-                return WebFetchResult.Blocked(url, blockedReason)
-            }
+            var currentUrl = url.trim()
+            repeat(MAX_REDIRECTS + 1) { hop ->
+                val blockedReason = blockedUrlReason(currentUrl)
+                if (blockedReason != null) return WebFetchResult.Blocked(currentUrl, blockedReason)
 
-            val request =
-                runCatching {
-                    Request
-                        .Builder()
-                        .url(url)
-                        .header("User-Agent", USER_AGENT)
-                        .build()
-                }.getOrElse {
-                    return WebFetchResult.NetworkError(url, "Malformed URL: ${it.message}")
+                val request =
+                    runCatching {
+                        Request
+                            .Builder()
+                            .url(currentUrl)
+                            .header("User-Agent", USER_AGENT)
+                            .build()
+                    }.getOrElse {
+                        return WebFetchResult.NetworkError(currentUrl, "Malformed URL: ${it.message}")
+                    }
+
+                val response =
+                    runCatching { client.newCall(request).execute() }
+                        .getOrElse { return WebFetchResult.NetworkError(currentUrl, it.message ?: "Request failed") }
+
+                response.use { resp ->
+                    if (resp.code in 300..399) {
+                        if (hop >= MAX_REDIRECTS) return WebFetchResult.NetworkError(currentUrl, "Too many redirects")
+                        val location = resp.header("Location") ?: return WebFetchResult.NetworkError(currentUrl, "Redirect missing Location header")
+                        currentUrl = runCatching { java.net.URI(currentUrl).resolve(location).toString() }
+                            .getOrElse { return WebFetchResult.NetworkError(currentUrl, "Invalid redirect target") }
+                        return@use
+                    }
+                    if (!resp.isSuccessful) return WebFetchResult.HttpError(currentUrl, resp.code, resp.message)
+                    val body = resp.body ?: return WebFetchResult.ExtractionFailed(currentUrl, "Empty response body")
+                    if (body.contentLength() > MAX_HTML_BYTES) {
+                        return WebFetchResult.ExtractionFailed(currentUrl, "Response exceeds ${MAX_HTML_BYTES / (1024 * 1024)} MB safety limit")
+                    }
+                    val html = body.charStream().buffered().use { reader ->
+                        val out = StringBuilder()
+                        val buffer = CharArray(16 * 1024)
+                        while (out.length < MAX_HTML_CHARS) {
+                            val n = reader.read(buffer, 0, minOf(buffer.size, MAX_HTML_CHARS - out.length))
+                            if (n < 0) break
+                            out.append(buffer, 0, n)
+                        }
+                        out.toString()
+                    }
+                    return extractReadableContent(currentUrl, html)
                 }
-
-            val response =
-                runCatching { client.newCall(request).execute() }
-                    .getOrElse { return WebFetchResult.NetworkError(url, it.message ?: "Request failed") }
-
-            return response.use { resp ->
-                if (!resp.isSuccessful) {
-                    return WebFetchResult.HttpError(url, resp.code, resp.message)
-                }
-                val html =
-                    resp.body?.string()
-                        ?: return WebFetchResult.ExtractionFailed(url, "Empty response body")
-
-                extractReadableContent(url, html)
             }
+            return WebFetchResult.NetworkError(currentUrl, "Redirect resolution failed")
         }
 
         private fun extractReadableContent(
@@ -154,6 +171,9 @@ class HtmlFetcher
 
         private companion object {
             const val FETCH_TIMEOUT_SECONDS = 15L
+            const val MAX_REDIRECTS = 4
+            const val MAX_HTML_BYTES = 2L * 1024L * 1024L
+            const val MAX_HTML_CHARS = 2_000_000
             const val MAX_EXTRACTED_TEXT_CHARS = 12_000
             const val USER_AGENT = "ArtificerX/1.0 (personal-use agent)"
         }

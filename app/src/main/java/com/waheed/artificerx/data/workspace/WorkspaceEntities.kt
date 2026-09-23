@@ -27,6 +27,9 @@ data class ChatMessageEntity(
     val autoSavedFileName: String?,
     val autoSavedUri: String?,
     val toolCallsJson: String,
+    val reasoningSummariesJson: String = "[]",
+    val reasoningEffort: String? = null,
+    val reasoningDurationMs: Long? = null,
 )
 
 @Entity(tableName = "artifacts", indices = [Index("threadId"), Index("createdAtEpochMillis")])

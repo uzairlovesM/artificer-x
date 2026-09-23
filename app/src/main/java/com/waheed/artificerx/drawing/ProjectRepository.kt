@@ -31,7 +31,7 @@ class ProjectRepository @Inject constructor(
     }
 
     suspend fun deleteProject(project: Project): Int {
-        dao.deleteProject(project.toEntity())
+        persistent.deleteProject(project.projectId)
         return 1
     }
 

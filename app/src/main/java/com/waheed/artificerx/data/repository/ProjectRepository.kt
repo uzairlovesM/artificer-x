@@ -6,7 +6,10 @@ import com.waheed.artificerx.data.local.db.ProjectVersionDao
 import com.waheed.artificerx.data.local.db.ProjectVersionEntity
 import com.waheed.artificerx.domain.model.CanvasLayer
 import com.waheed.artificerx.domain.model.CanvasProjectState
+import com.waheed.artificerx.core.storage.WorkspaceFileSystem
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.UUID
@@ -26,6 +29,7 @@ class ProjectRepository
     constructor(
         private val projectDao: ProjectDao,
         private val versionDao: ProjectVersionDao,
+        private val workspaceFileSystem: WorkspaceFileSystem,
     ) {
         private val json = Json { encodeDefaults = true }
 
@@ -95,6 +99,17 @@ class ProjectRepository
 
         suspend fun deleteProject(projectId: String) {
             val entity = projectDao.getProjectById(projectId) ?: return
+            val projectDirectory = workspaceFileSystem.existingProjectDir(projectId)
+            withContext(Dispatchers.IO) {
+                if (projectDirectory.exists()) {
+                    check(projectDirectory.canonicalPath.startsWith(workspaceFileSystem.roots.projects.canonicalPath + java.io.File.separator)) {
+                        "Refusing to delete a path outside the project workspace."
+                    }
+                    check(projectDirectory.deleteRecursively()) {
+                        "Project file workspace could not be removed; database metadata was preserved."
+                    }
+                }
+            }
             versionDao.deleteAllVersionsForProject(projectId)
             projectDao.deleteProject(entity)
         }

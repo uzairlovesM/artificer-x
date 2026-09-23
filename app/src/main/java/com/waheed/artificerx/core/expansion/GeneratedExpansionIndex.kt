@@ -968,7 +968,7 @@ import com.waheed.artificerx.di.DiagnosticsModuleExpansion as ExpansionType964
 import com.waheed.artificerx.di.DispatcherModuleExpansion as ExpansionType965
 import com.waheed.artificerx.di.ExportModuleExpansion as ExpansionType966
 import com.waheed.artificerx.di.ExtensionModuleExpansion as ExpansionType967
-import com.waheed.artificerx.di.FakeModuleExpansion as ExpansionType968
+import com.waheed.artificerx.di.DependencyInjectionExpansion as ExpansionType968
 import com.waheed.artificerx.di.FeatureModuleExpansion as ExpansionType969
 import com.waheed.artificerx.di.ImportModuleExpansion as ExpansionType970
 import com.waheed.artificerx.di.InsightsModuleExpansion as ExpansionType971

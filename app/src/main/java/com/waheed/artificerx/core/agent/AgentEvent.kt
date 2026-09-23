@@ -5,6 +5,12 @@ sealed class AgentEvent {
         val providerName: String,
     ) : AgentEvent()
 
+    /** Provider-supplied summarized reasoning. Never contains hidden private chain-of-thought. */
+    data class ThinkingSummary(
+        val summary: String,
+        val source: String = "provider",
+    ) : AgentEvent()
+
     data class ToolCallStarted(
         val callId: String,
         val toolName: String,

@@ -10,7 +10,12 @@ class SecurityPolicyTest {
     fun blocksDangerousCommands() {
         assertFalse(SecurityPolicy.isShellAllowed("rm -rf /"))
         assertFalse(SecurityPolicy.isShellAllowed("reboot"))
-        assertTrue(SecurityPolicy.isShellAllowed("mkdir -p demo && echo hello > demo/a.txt"))
+        assertTrue(SecurityPolicy.isShellAllowed("mkdir -p demo"))
+        assertFalse(SecurityPolicy.isShellAllowed("mkdir -p demo && echo hello"))
+        assertFalse(SecurityPolicy.isShellAllowed("echo hello > demo/a.txt"))
+        assertFalse(SecurityPolicy.isShellAllowed("sleep 60 &"))
+        assertFalse(SecurityPolicy.isShellAllowed("nohup sleep 60"))
+        assertFalse(SecurityPolicy.isShellAllowed("setsid sleep 60"))
     }
 
     @Test

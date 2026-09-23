@@ -1,35 +1,24 @@
-package com.waheed.artificerx.ui.screens.sculpt
-
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pointerInput
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,21 +27,29 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.waheed.artificerx.domain.model.PrimitiveType
 import com.waheed.artificerx.domain.model.SculptBrushType
+import com.waheed.artificerx.domain.model.SculptMesh
 import com.waheed.artificerx.ui.theme.GoldPrimary
-import com.waheed.artificerx.ui.theme.ToolCallChipShape
-import com.waheed.artificerx.ui.theme.glassSurface
+
+private data class SculptProjectedVertex(
+    val point: Offset,
+    val depth: Float,
+)
 
 /**
  * Full 3D sculpting studio surface — the 3D counterpart to
  * StudioScreen. Structure: top bar (back, agent-activity indicator),
- * full-screen SculptSurfaceView (real GPU render + touch-to-sculpt),
+ * full-screen mesh viewport with deterministic CPU geometry preview and
+ * orbit interaction,
  * bottom brush toolbar (radius/strength sliders + 6 brush types),
  * floating primitive-add button and mesh list.
  */
@@ -98,7 +95,7 @@ fun SculptScreen(
             ) {
                 Icon(
                     Icons.Filled.PlayArrow,
-                    contentDescription = "Test stroke at mesh center (manual sculpt, no viewport yet)",
+                    contentDescription = "Apply center sculpt stroke",
                     tint = if (uiState.activeMeshId != null) GoldPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -111,7 +108,7 @@ fun SculptScreen(
         }
 
         Box(modifier = Modifier.weight(1f)) {
-            SculptViewportPlaceholder(
+            SculptViewportPreview(
                 activeMesh = uiState.activeMeshId?.let { uiState.meshes[it] },
                 meshCount = uiState.meshes.size,
             )
@@ -151,204 +148,121 @@ fun SculptScreen(
 }
 
 @Composable
-private fun SculptViewportPlaceholder(
-    activeMesh: com.waheed.artificerx.domain.model.SculptMesh?,
+private fun SculptViewportPreview(
+    activeMesh: SculptMesh?,
     meshCount: Int,
 ) {
+    var yawDegrees by remember { mutableStateOf(-28f) }
+    var pitchDegrees by remember { mutableStateOf(18f) }
+    val surface = MaterialTheme.colorScheme.surfaceVariant
+    val onSurface = MaterialTheme.colorScheme.onSurfaceVariant
+    val meshColor = remember(activeMesh?.colorHex) {
+        runCatching { Color(android.graphics.Color.parseColor(activeMesh?.colorHex ?: "#CCCCCC")) }
+            .getOrDefault(Color.LightGray)
+    }
+
     Box(
         modifier =
             Modifier
                 .fillMaxSize()
                 .padding(16.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.large),
-        contentAlignment = Alignment.Center,
+                .background(surface, MaterialTheme.shapes.large)
+                .pointerInput(activeMesh?.id) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        yawDegrees = (yawDegrees + dragAmount.x * 0.45f) % 360f
+                        pitchDegrees = (pitchDegrees - dragAmount.y * 0.35f).coerceIn(-78f, 78f)
+                    }
+                },
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Filled.Circle, contentDescription = null, tint = GoldPrimary.copy(alpha = 0.4f), modifier = Modifier.size(48.dp))
-            Spacer(modifier = Modifier.padding(top = 8.dp))
-            Text(
-                text =
-                    if (activeMesh !=
-                        null
-                    ) {
-                        "${activeMesh.name} — ${activeMesh.vertexCount}v / ${activeMesh.triangleCount}t"
-                    } else {
-                        "$meshCount mesh(es) in scene"
-                    },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = "3D viewport renderer not wired yet — mesh data and sculpt tools are fully functional",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-            )
-        }
-    }
-}
+        Canvas(Modifier.fillMaxSize()) {
+            drawRect(surface)
+            val mesh = activeMesh
+            if (mesh != null && mesh.vertices.isNotEmpty()) {
+                val yaw = Math.toRadians(yawDegrees.toDouble()).toFloat()
+                val pitch = Math.toRadians(pitchDegrees.toDouble()).toFloat()
+                val cosY = kotlin.math.cos(yaw)
+                val sinY = kotlin.math.sin(yaw)
+                val cosP = kotlin.math.cos(pitch)
+                val sinP = kotlin.math.sin(pitch)
 
-@Composable
-private fun PrimitivePickerOverlay(
-    onSelect: (PrimitiveType) -> Unit,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier.glassSurface().padding(12.dp)) {
-        Text(
-            "Add Primitive",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onBackground,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(modifier = Modifier.padding(top = 8.dp))
-        PrimitiveType.entries.forEach { type ->
-            Text(
-                text = type.name.lowercase().replaceFirstChar { it.uppercase() },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp)
-                        .then(Modifier)
-                        .clickableSimple { onSelect(type) },
-            )
-        }
-    }
-}
+                val span = maxOf(
+                    mesh.vertices.maxOf { it.x } - mesh.vertices.minOf { it.x },
+                    mesh.vertices.maxOf { it.y } - mesh.vertices.minOf { it.y },
+                    mesh.vertices.maxOf { it.z } - mesh.vertices.minOf { it.z },
+                    0.001f,
+                )
+                val scale = minOf(size.width, size.height) * 0.68f / span
+                val cx = size.width / 2f
+                val cy = size.height / 2f
 
-@Composable
-private fun MeshListOverlay(
-    meshIds: List<String>,
-    meshNames: Map<String, String>,
-    activeMeshId: String?,
-    onSelect: (String) -> Unit,
-    onDelete: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier.glassSurface().padding(12.dp)) {
-        Text(
-            "Scene Meshes",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onBackground,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Spacer(modifier = Modifier.padding(top = 8.dp))
-        if (meshIds.isEmpty()) {
-            Text("No meshes yet", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        meshIds.forEach { id ->
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    Icons.Filled.Circle,
-                    contentDescription = null,
-                    tint = if (id == activeMeshId) GoldPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(10.dp).clickableSimple { onSelect(id) },
-                )
-                Text(
-                    text = meshNames[id] ?: id,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.weight(1f).padding(start = 8.dp).clickableSimple { onSelect(id) },
-                )
-                IconButton(onClick = { onDelete(id) }, modifier = Modifier.size(24.dp)) {
-                    Icon(
-                        Icons.Filled.RemoveCircleOutline,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp),
+                val projected = mesh.vertices.map { vertex ->
+                    val x1 = vertex.x * cosY - vertex.z * sinY
+                    val z1 = vertex.x * sinY + vertex.z * cosY
+                    val y1 = vertex.y * cosP - z1 * sinP
+                    val z2 = vertex.y * sinP + z1 * cosP
+                    val perspective = 1f / (1f + (z2 * 0.12f).coerceIn(-0.65f, 0.65f))
+                    SculptProjectedVertex(
+                        point = Offset(cx + x1 * scale * perspective, cy - y1 * scale * perspective),
+                        depth = z2,
                     )
+                }
+
+                val triangles = mesh.triangleIndices
+                    .chunked(3)
+                    .mapNotNull { tri ->
+                        if (tri.size != 3 || tri.any { it !in projected.indices }) null
+                        else Triple(projected[tri[0]], projected[tri[1]], projected[tri[2]])
+                    }
+                    .sortedByDescending { (a, b, c) -> (a.depth + b.depth + c.depth) / 3f }
+
+                // Grounded axis helper makes orientation obvious after orbiting.
+                drawLine(onSurface.copy(alpha = 0.25f), Offset(24f, size.height - 26f), Offset(72f, size.height - 26f), strokeWidth = 2f)
+                drawLine(onSurface.copy(alpha = 0.25f), Offset(24f, size.height - 26f), Offset(24f, size.height - 74f), strokeWidth = 2f)
+
+                triangles.forEach { (a, b, c) ->
+                    val depth = (((a.depth + b.depth + c.depth) / 3f) + span) / (2f * span)
+                    val faceAlpha = (0.10f + depth.coerceIn(0f, 1f) * 0.20f)
+                    val path = Path().apply {
+                        moveTo(a.point.x, a.point.y)
+                        lineTo(b.point.x, b.point.y)
+                        lineTo(c.point.x, c.point.y)
+                        close()
+                    }
+                    drawPath(path, color = meshColor.copy(alpha = faceAlpha))
+                    drawLine(meshColor.copy(alpha = 0.82f), a.point, b.point, strokeWidth = 1.4f)
+                    drawLine(meshColor.copy(alpha = 0.82f), b.point, c.point, strokeWidth = 1.4f)
+                    drawLine(meshColor.copy(alpha = 0.82f), c.point, a.point, strokeWidth = 1.4f)
                 }
             }
         }
-    }
-}
 
-@Composable
-private fun BrushToolbar(
-    activeBrush: SculptBrushType,
-    radius: Float,
-    strength: Float,
-    onBrushSelected: (SculptBrushType) -> Unit,
-    onRadiusChanged: (Float) -> Unit,
-    onStrengthChanged: (Float) -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier.align(Alignment.TopStart).padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text("Radius", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Slider(
-                value = radius,
-                onValueChange = onRadiusChanged,
-                valueRange = 0.05f..1f,
-                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                colors = SliderDefaults.colors(thumbColor = GoldPrimary, activeTrackColor = GoldPrimary),
+            Text(
+                text = activeMesh?.name ?: "Sculpt viewport",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold,
             )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Strength", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Slider(
-                value = strength,
-                onValueChange = onStrengthChanged,
-                valueRange = 0.05f..1.5f,
-                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                colors = SliderDefaults.colors(thumbColor = GoldPrimary, activeTrackColor = GoldPrimary),
+            Text(
+                text = if (activeMesh != null) "Drag to orbit • ${activeMesh.vertexCount} vertices • ${activeMesh.triangleCount} triangles" else "$meshCount mesh(es) in scene",
+                style = MaterialTheme.typography.labelSmall,
+                color = onSurface,
             )
         }
 
-        LazyRow(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding =
-                androidx.compose.foundation.layout
-                    .PaddingValues(horizontal = 16.dp),
-        ) {
-            items(SculptBrushType.entries) { brush ->
-                BrushChip(brush = brush, isSelected = brush == activeBrush, onClick = { onBrushSelected(brush) })
+        if (activeMesh == null) {
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(Icons.Filled.Circle, contentDescription = null, tint = GoldPrimary.copy(alpha = 0.4f), modifier = Modifier.size(48.dp))
+                Text("Add a primitive to begin sculpting", style = MaterialTheme.typography.bodyMedium, color = onSurface)
             }
         }
     }
 }
-
-@Composable
-private fun BrushChip(
-    brush: SculptBrushType,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-) {
-    Box(
-        modifier =
-            Modifier
-                .size(48.dp)
-                .background(if (isSelected) GoldPrimary else MaterialTheme.colorScheme.surfaceVariant, ToolCallChipShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        IconButton(onClick = onClick) {
-            Icon(
-                imageVector = brushIconFor(brush),
-                contentDescription = brush.name,
-                tint = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-private fun brushIconFor(brush: SculptBrushType): ImageVector =
-    when (brush) {
-        SculptBrushType.PUSH -> Icons.Filled.ArrowDownward
-        SculptBrushType.PULL -> Icons.Filled.ArrowUpward
-        SculptBrushType.SMOOTH -> Icons.Filled.Circle
-        SculptBrushType.PINCH -> Icons.Filled.Straighten
-        SculptBrushType.INFLATE -> Icons.Filled.Star
-        SculptBrushType.FLATTEN -> Icons.Filled.Brush
-    }
-
-private fun Modifier.clickableSimple(onClick: () -> Unit): Modifier = this.clickable(onClick = onClick)
