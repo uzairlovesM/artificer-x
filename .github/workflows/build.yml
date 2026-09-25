@@ -96,30 +96,37 @@ jobs:
         with: { distribution: '${{ env.JAVA_DISTRO }}', java-version: '${{ env.JAVA_VERSION }}' }
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: true
 
-      # android-actions/setup-android only installs cmdline-tools +
-      # platform-tools — it does not pre-install the specific
-      # platform/build-tools this project's compileSdk (36) and AGP
-      # 8.13.2 (min build-tools 35.0.0, but the SDK Manager always
-      # keeps the matching 36.x line for a 36 platform) actually need.
-      # Explicit sdkmanager install here means the first real Gradle
-      # task doesn't have to fall back to an implicit, licenses-must-
-      # already-be-accepted auto-download that fails opaquely in a
-      # clean CI container if licenses were never accepted
-      # non-interactively.
-      - name: Install required SDK platform, build-tools & emulator images
+      # setup-android installs command-line tools + platform-tools.
+      # The project additionally pins Android platform/build tools, NDK,
+      # and CMake for its real Gradle/native build contract, so install
+      # those exact versions explicitly rather than asking Gradle to mutate
+      # a clean runner implicitly.
+      # Use the sdkmanager exposed by setup-android itself. Do not request
+      # the removed/deprecated legacy `tools` SDK package.
+      - name: Install exact Android SDK + native toolchain
         run: |
-          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER" ]; then
-            SDKMANAGER=$(find "${ANDROID_HOME}/cmdline-tools" -name "sdkmanager" -type f 2>/dev/null | head -1)
-          fi
+          SDKMANAGER="$(command -v sdkmanager || true)"
           if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
-            echo "::error::sdkmanager not found under ANDROID_HOME=${ANDROID_HOME} — cannot install required SDK components"
+            echo "::error::sdkmanager not found on PATH — setup-android did not expose the Android CLI tools"
             exit 1
           fi
           yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-          "$SDKMANAGER" "platforms;android-36" "platforms;android-35" "build-tools;36.0.0" "build-tools;35.0.0" "platform-tools" "cmdline-tools;latest"
+          "$SDKMANAGER"             "platforms;android-36"             "platforms;android-35"             "build-tools;36.0.0"             "build-tools;35.0.0"             "ndk;29.0.14206865"             "cmake;3.31.6"             "platform-tools"
+
+      - name: Verify Android toolchain contract
+        run: |
+          command -v sdkmanager
+          test -d "${ANDROID_HOME}/platforms/android-36"
+          test -d "${ANDROID_HOME}/build-tools/36.0.0"
+          test -d "${ANDROID_HOME}/ndk/29.0.14206865"
+          test -d "${ANDROID_HOME}/cmake/3.31.6"
+          echo "Android SDK 36 + Build Tools 36.0.0 + NDK 29.0.14206865 + CMake 3.31.6 verified"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
