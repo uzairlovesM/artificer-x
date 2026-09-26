@@ -1,6 +1,12 @@
 [versions]
 # ── Core build tooling ──
 agp = "8.13.2"
+androidCompileSdk = "36"
+androidMinSdk = "33"
+androidTargetSdk = "36"
+androidBuildTools = "36.0.0"
+androidNdk = "29.0.14206865"
+androidCmake = "3.31.6"
 # Kotlin bumped 2.1.20 -> 2.3.10. Root cause of the follow-up CI
 # failure (kspDebugKotlin: "Module was compiled with an incompatible
 # version of Kotlin. The binary version of its metadata is 2.3.0,
@@ -519,11 +525,3 @@ dexcount = { id = "com.getkeepsafe.dexcount", version.ref = "dexcount" }
 # already have one"), so only apollo-runtime (the manual/runtime
 # client, usable without codegen) is wired in app/build.gradle.kts.
 # Add the plugin + a schema.graphqls once a real endpoint exists.
-# NOTE: no androidx.baselineprofile plugin entry here either — Baseline
-# Profiles need a dedicated com.android.test-type Gradle module (a
-# ":baselineprofile" sibling to ":app", per Google's own module
-# template) to host the profile-generation instrumentation test; that's
-# a structural, multi-file addition (new module + settings.gradle.kts
-# entry + its own build.gradle.kts) rather than a version-catalog-only
-# change, so it's tracked as a separate follow-up rather than half-wired
-# here with no module to actually apply it in.

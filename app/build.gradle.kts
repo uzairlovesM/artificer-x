@@ -74,8 +74,9 @@ kotlin {
 android {
     namespace = "com.waheed.artificerx"
     // API 36 is the current project compile target; the app is personal-device-only.
-    compileSdk = 36
-    ndkVersion = "29.0.14206865"
+    compileSdk = libs.versions.androidCompileSdk.get().toInt()
+    buildToolsVersion = libs.versions.androidBuildTools.get()
+    ndkVersion = libs.versions.androidNdk.get()
 
     defaultConfig {
         applicationId = "com.waheed.artificerx"
@@ -85,10 +86,10 @@ android {
         // unlocks the themed-icon, per-app-language, and granular-media
         // permission APIs the new screens below will want, without any
         // backward-compat shims.
-        minSdk = 33
+        minSdk = libs.versions.androidMinSdk.get().toInt()
         // The device itself is Android 13, but targetSdk is a build contract, not the
         // device API level. This private build intentionally opts into API-36 behavior.
-        targetSdk = 36
+        targetSdk = libs.versions.androidTargetSdk.get().toInt()
         versionCode = 15
         versionName = "1.0.0-alpha06"
 
@@ -131,7 +132,7 @@ android {
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.31.6"
+            version = libs.versions.androidCmake.get()
         }
     }
 
@@ -240,14 +241,10 @@ android {
                 .file("reports/lint/lint-report.txt")
                 .get()
                 .asFile
-        // No baseline file yet — this project has never had a full
-        // lintRelease run in an environment with the Android SDK
-        // available (this sandbox has none), so there's nothing real
-        // to baseline. Once CI runs lintRelease for the first time,
-        // generate one deliberately via `./gradlew lintRelease
-        // -Dlint.baselines.continue=true` and point `baseline =` at
-        // it — don't reference a file that was never actually
-        // produced by a real lint run.
+        // Lint baseline remains intentionally unconfigured until a real
+        // lintRelease run exists. The separate `src/main/baseline-prof.txt`
+        // file is an ART Baseline Profile optimization input, not a lint
+        // suppression baseline, so it must not be wired into this block.
         // GradleDependency: this project intentionally pins dependency
         // versions by hand in libs.versions.toml (reviewed via the
         // `versions` plugin's dependencyUpdatesReport task) rather than
@@ -355,6 +352,14 @@ android {
             isUniversalApk = true
         }
     }
+}
+
+baselineProfile {
+    // Keep one generated profile artifact for the app so CI can use the
+    // stable :app:generateBaselineProfile task and publish a single merged
+    // result. The checked-in src/main/baseline-prof.txt remains the
+    // conservative hand-maintained seed; generated output is CI evidence.
+    mergeIntoMain = true
 }
 
 dependencies {

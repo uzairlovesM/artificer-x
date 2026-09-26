@@ -4,6 +4,8 @@ import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.MacrobenchmarkRule
 import androidx.benchmark.macro.StartupMode
 import androidx.benchmark.macro.StartupTimingMetric
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Until
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Rule
 import org.junit.Test
@@ -26,6 +28,8 @@ class StartupAndJankBenchmark {
     ) {
         startActivityAndWait()
         device.waitForIdle()
+        device.wait(Until.findObject(By.text("Skip for now")), 2_000)?.click()
+        device.wait(Until.findObject(By.descStartsWith("Canvas artwork")), 5_000)
         repeat(5) { device.waitForIdle() }
     }
 }

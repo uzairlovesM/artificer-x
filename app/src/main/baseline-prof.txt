@@ -1,0 +1,10 @@
+# ARTIFICER-X manual baseline profile seed
+# The :baselineprofile module generates a larger profile from the real device journey.
+# These conservative rules ensure the core process/startup surface remains profiled even
+# when generated artifacts are not checked into source control.
+HSPLcom/waheed/artificerx/ArtificerXApp;->onCreate()V
+HSPLcom/waheed/artificerx/MainActivity;->onCreate(Landroid/os/Bundle;)V
+Lcom/waheed/artificerx/ArtificerXApp;
+Lcom/waheed/artificerx/MainActivity;
+Lcom/waheed/artificerx/ui/navigation/ArtificerXNavGraphKt;
+Lcom/waheed/artificerx/ui/screens/canvas/StudioScreenKt;

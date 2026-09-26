@@ -1,16 +1,17 @@
 plugins {
-    alias(libs.plugins.android.test)
+    id("com.android.test")
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.androidx.benchmark)
 }
 
 android {
     namespace = "com.waheed.artificerx.benchmark"
-    compileSdk = 36
+    compileSdk = libs.versions.androidCompileSdk.get().toInt()
+    buildToolsVersion = libs.versions.androidBuildTools.get()
 
     defaultConfig {
-        minSdk = 33
-        targetSdk = 36
+        minSdk = libs.versions.androidMinSdk.get().toInt()
+        targetSdk = libs.versions.androidTargetSdk.get().toInt()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
