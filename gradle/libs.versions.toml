@@ -163,8 +163,6 @@ lottie = "6.6.2"
 zoomable = "2.6.0"
 graphicsPath = "1.1.0"
 graphicsShapes = "1.1.0"
-# Explicit Skia bindings for heavy offscreen raster/export workloads.
-skikoAndroid = "0.8.18"
 # Painting/drawing stack. AndroidX Ink handles low-latency stylus/finger inking.
 # Skiko adds an explicit offscreen Skia backend for heavy raster/export work.
 inkAuthoring = "1.1.0-alpha07"
@@ -396,7 +394,6 @@ androidsvg = { group = "com.caverock", name = "androidsvg-aar", version.ref = "a
 colorpicker-compose = { group = "com.github.skydoves", name = "colorpicker-compose", version.ref = "colorpickerCompose" }
 lottie-compose = { group = "com.airbnb.android", name = "lottie-compose", version.ref = "lottie" }
 zoomable = { group = "net.engawapg.lib", name = "zoomable", version.ref = "zoomable" }
-skiko-android = { group = "org.jetbrains.skiko", name = "skiko-android", version.ref = "skikoAndroid" }
 
 # ── Background work / security ──
 work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "workManager" }

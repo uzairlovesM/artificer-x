@@ -472,8 +472,6 @@ dependencies {
     implementation(libs.androidx.graphics.shapes)
     implementation(libs.androidx.palette)
     implementation(libs.androidx.exifinterface)
-    // Explicit Skia/Skiko offscreen engine for heavy raster/export workloads.
-    implementation(libs.skiko.android)
 
     // ── Background work / security ──
     implementation(libs.work.runtime.ktx)
