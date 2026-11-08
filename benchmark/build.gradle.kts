@@ -1,7 +1,9 @@
 plugins {
     id("com.android.test")
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.androidx.benchmark)
+    // androidx.benchmark plugin removed: it only supports com.android.library modules,
+    // not com.android.test. Macrobenchmarks run fine without it via
+    // connectedBenchmarkAndroidTest — the plugin itself is not required.
 }
 
 android {
