@@ -1,7 +1,7 @@
 [versions]
 # ── Core build tooling ──
-agp = "8.13.2"
-androidCompileSdk = "36"
+agp = "9.1.0"
+androidCompileSdk = "37"
 androidMinSdk = "33"
 androidTargetSdk = "36"
 androidBuildTools = "36.0.0"
@@ -89,7 +89,7 @@ navigationCompose = "2.9.8"
 # still supports AGP 8.x — Hilt 2.59+ dropped AGP 8.x support
 # entirely in favor of AGP 9's built-in Kotlin support, which this
 # project (on AGP 8.13.2) cannot use yet.
-hilt = "2.58"
+hilt = "2.59"
 hiltNavigationCompose = "1.2.0"
 hiltWork = "1.2.0"
 

@@ -1,7 +1,6 @@
 plugins {
     id("com.android.test")
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.androidx.benchmark)
 }
 
 android {
@@ -16,6 +15,7 @@ android {
     }
 
     targetProjectPath = ":app"
+    experimentalProperties["android.experimental.self-instrumenting"] = true
 }
 
 dependencies {
